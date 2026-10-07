@@ -28,9 +28,12 @@ if (!LOCATIONS.length && Number.isFinite(AREA.lat)) LOCATIONS.push({ name: env('
 const LOCATION_RADIUS = num('LOCATION_RADIUS_NM', 40);
 const AREAS = [...(Number.isFinite(AREA.lat) ? [AREA] : []), ...LOCATIONS.map((l) => ({ lat: l.lat, lon: l.lon, radius: LOCATION_RADIUS }))];
 const CLOSEST = num('CLOSEST', 50);
+const HA_WEBHOOK = env('HA_WEBHOOK');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const VESSELS_FILE = path.join(DATA_DIR, 'vessels.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const ALERTS_FILE = path.join(DATA_DIR, 'alerts.json');
 const NM = 3440.065;
 const RAD = Math.PI / 180;
 const KEEP_POSITION_MS = 3 * 3600_000; // drop vessels not heard for 3 h from the live list
@@ -178,6 +181,7 @@ function onPosition(v, p, meta) {
   const last = v.track[v.track.length - 1];
   if (!last || dist(last[1], last[2], lat, lon) > 0.027 || now - last[0] > 300_000) v.track.push([now, lat, lon, v.sog]);
   while (v.track.length && now - v.track[0][0] > TRACK_MS) v.track.shift();
+  checkHarbours(v);
 }
 
 function onMessage(m) {
@@ -286,9 +290,124 @@ function save() {
   writeJson(VESSELS_FILE, [...vessels.values()].map(({ track, ...v }) => ({ ...v, track: now - (v.posAt || 0) < KEEP_POSITION_MS ? track : [] })));
 }
 
+// ---- alerts ----------------------------------------------------------------
+// Warships and cruise ships entering a harbour: crossing into ALERT radius around a chosen location after having been
+// seen outside it (so ships already in port when the monitor starts never alert). Sent to Home Assistant's webhook.
+
+const DEFAULT_SETTINGS = {
+  warships: true,
+  cruise: true,
+  coastguard: false,
+  radius: num('ALERT_RADIUS_NM', 6), // nm around each harbour location
+  harbours: LOCATIONS.length ? [LOCATIONS[0].name] : [],
+  cooldownHours: 12,
+};
+let settings = { ...DEFAULT_SETTINGS, ...readJson(SETTINGS_FILE, {}) };
+let alerts = readJson(ALERTS_FILE, []);
+
+function alertKind(v) {
+  const k = classify(v);
+  if (k.cls === 'mil' && settings.warships) return { kind: 'warship', k };
+  if (k.cls === 'com' && k.sub === 'Cruise ship' && settings.cruise) return { kind: 'cruise', k };
+  if (k.cls === 'gov' && k.sub === 'Coast Guard' && settings.coastguard) return { kind: 'coastguard', k };
+  return null;
+}
+
+function checkHarbours(v) {
+  if (!settings.harbours.length) return;
+  v.harb ||= {};
+  for (const name of settings.harbours) {
+    const h = LOCATIONS.find((l) => l.name === name);
+    if (!h) continue;
+    const st = (v.harb[name] ||= {});
+    const d = dist(h.lat, h.lon, v.lat, v.lon);
+    if (d > settings.radius) {
+      st.out = Date.now();
+      st.alerted = false;
+      continue;
+    }
+    if (!st.out || Date.now() - st.out > 6 * 3600_000 || st.alerted) continue; // must have been outside recently
+    const a = alertKind(v);
+    if (!a) continue; // type may still arrive while it's inside
+    st.alerted = true;
+    if (alerts.some((x) => x.mmsi === v.mmsi && x.harbour === name && Date.now() - x.t < settings.cooldownHours * 3600_000)) continue;
+    sendAlert(v, a, h, d);
+  }
+}
+
+const FLAGNAME = (() => {
+  try {
+    const dn = new Intl.DisplayNames(['en'], { type: 'region' });
+    return (cc) => (cc ? dn.of(cc) : '');
+  } catch (e) {
+    return (cc) => cc;
+  }
+})();
+
+function sendAlert(v, a, h, d) {
+  const name = v.name || `MMSI ${v.mmsi}`, flag = flagOf(v.mmsi);
+  const what = a.kind === 'warship' ? (a.k.navy ? `${a.k.navy} warship` : 'Warship') : a.kind === 'cruise' ? 'Cruise ship' : 'Coast Guard ship';
+  const icon = a.kind === 'warship' ? '⚓' : a.kind === 'cruise' ? '🛳️' : '🛟';
+  const bits = [a.k.sub && a.k.sub !== 'Military' && a.kind !== 'cruise' ? a.k.sub : '', v.length ? `${v.length} m` : '', FLAGNAME(flag)].filter(Boolean).join(' · ');
+  const move = [v.sog != null ? `${v.sog.toFixed(1)} kn` : '', `${d.toFixed(1)} nm from ${h.name}`, v.dest ? `destination ${v.dest}` : ''].filter(Boolean).join(', ');
+  return send({
+    kind: a.kind, mmsi: v.mmsi, harbour: h.name, priority: 'high', tag: `ais-${a.kind}-${v.mmsi}`,
+    title: `${icon} ${what} entering ${h.name}`,
+    message: `${name}${bits ? ` · ${bits}` : ''}\n${move}`,
+  });
+}
+
+async function send(alert) {
+  const rec = { t: Date.now(), ...alert };
+  alerts.push(rec);
+  alerts = alerts.slice(-200);
+  writeJson(ALERTS_FILE, alerts);
+  log('alert', alert.kind, alert.title, '|', alert.message.replace(/\n/g, ' | '));
+  if (!HA_WEBHOOK) return rec;
+  try {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(HA_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alert), signal: ctl.signal });
+    clearTimeout(to);
+    rec.sent = r.ok;
+  } catch (e) {
+    rec.sent = false;
+    log('webhook failed:', e.message);
+  }
+  writeJson(ALERTS_FILE, alerts);
+  return rec;
+}
+
+function updateSettings(p) {
+  for (const k of ['warships', 'cruise', 'coastguard']) if (typeof p[k] === 'boolean') settings[k] = p[k];
+  for (const [k, max] of [['radius', 50], ['cooldownHours', 168]]) {
+    const n = Number(p[k]);
+    if (p[k] !== undefined && Number.isFinite(n) && n > 0 && n <= max) settings[k] = n;
+  }
+  if (Array.isArray(p.harbours)) settings.harbours = p.harbours.filter((n) => LOCATIONS.some((l) => l.name === n));
+  writeJson(SETTINGS_FILE, settings);
+  return settings;
+}
+
 // ---- HTTP ------------------------------------------------------------------
 
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
+function body(req) {
+  return new Promise((resolve, reject) => {
+    let s = '';
+    req.on('data', (c) => {
+      s += c;
+      if (s.length > 50_000) req.destroy();
+    });
+    req.on('end', () => {
+      try {
+        resolve(s ? JSON.parse(s) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
 function sendJson(res, obj, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS });
   res.end(JSON.stringify(obj));
@@ -309,7 +428,7 @@ function publicVessel(v, c) {
   return out;
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   if (req.method === 'OPTIONS') {
@@ -341,7 +460,20 @@ const server = http.createServer((req, res) => {
     if (!v) return sendJson(res, { error: 'unknown vessel' }, 404);
     return sendJson(res, { ...publicVessel(v, center()), track: v.track.map(([t, lat, lon, sog]) => ({ t, lat, lon, sog })) });
   }
-  if (p === '/' || p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>'] });
+  if (p === '/api/settings' && req.method === 'GET') return sendJson(res, { ...settings, webhook: !!HA_WEBHOOK });
+  if (p === '/api/settings' && (req.method === 'PUT' || req.method === 'POST')) {
+    try {
+      return sendJson(res, { ...updateSettings(await body(req)), webhook: !!HA_WEBHOOK });
+    } catch (e) {
+      return sendJson(res, { error: e.message }, 400);
+    }
+  }
+  if (p === '/api/alerts') return sendJson(res, alerts.slice(-100).reverse());
+  if (p === '/api/test-alert' && req.method === 'POST') {
+    const t = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return sendJson(res, await send({ kind: 'test', priority: 'normal', tag: 'ais-test', title: '🚢 Ship alerts are working', message: `Test from ais-monitor at ${t}.` }));
+  }
+  if (p === '/' || p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/settings', '/api/alerts', '/api/test-alert'] });
   sendJson(res, { error: 'not found' }, 404);
 });
 

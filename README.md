@@ -13,6 +13,8 @@ The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (ai
   - **Vessel**: flag and country, name, class, type, size, draught, MMSI / IMO / callsign, speed, course and heading,
     distance and bearing from the location, the destination and ETA the crew reported, a speed chart, and links to
     MarineTraffic, VesselFinder and MyShipTracking.
+  - **Alerts**: phone alerts for **warships** and **cruise ships** (optionally Coast Guard ships) **entering a
+    harbour**, and which harbours to watch.
 - **`ais-monitor`**: a small always-on Node service (no dependencies) that holds one connection to
   [aisstream.io](https://aisstream.io), a free AIS feed that needs a key. It keeps a table of every vessel heard in
   the areas you choose, and serves the closest ones to the card. Your key stays on your server; aisstream doesn't
@@ -39,6 +41,21 @@ Flags come from the MMSI's country digits (316 Canada, 338/366–369 USA, 232–
 so a newly seen vessel shows as "Waiting for details" for a while. The monitor remembers names and types for 30
 days, so the picture fills in over the first hours and stays filled. Many small craft (class B transponders) never
 send a type.
+
+## Harbour alerts
+A vessel "enters a harbour" when it crosses into a circle (6 nm by default) around one of your locations, having been
+seen outside it within the last 6 hours, so ships already in port when the monitor starts never alert. The alert
+fires once its class is known: a warship by its navy prefix or type 35 (often from the name alone), a cruise ship by
+type 60–69 and length ≥ 200 m (its details can arrive after it has crossed; it still alerts while inside). The same
+vessel doesn't alert again for 12 h. Example:
+
+> ⚓ **RCN warship entering Halifax Harbour**
+> HMCS HALIFAX · Royal Canadian Navy · Canada
+> 12.0 kn, 4.6 nm from Halifax Harbour
+
+Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)), which sends sticky
+notifications that open the Ships view when tapped. Turn types on or off, set the circle and pick harbours in the
+card's Alerts tab; there's a test button and the recent alerts.
 
 ## Requirements
 - A free **aisstream.io** API key: sign in at aisstream.io, then *API Keys*. A key allows only a limited number of
@@ -81,6 +98,8 @@ curl http://localhost:7110/api/status
 | `LOCATION_RADIUS_NM` | `40` | AIS is received for a box this size around each location |
 | `AREA_LAT`, `AREA_LON`, `AREA_RADIUS_NM` | none, `100` | Optional wider area to receive as well |
 | `CLOSEST` | `50` | Default number of closest vessels |
+| `HA_WEBHOOK` | none | HA webhook URL for phone alerts. Empty: alerts are only logged |
+| `ALERT_RADIUS_NM` | `6` | Starting harbour circle for alerts; then set in the card |
 | `PORT` | `7110` | |
 
 ### Card options
@@ -102,11 +121,14 @@ centred (inside the areas the monitor receives).
 | `GET /api/status` | connection, message count, areas, locations, vessel counts |
 | `GET /api/vessels?lat=&lon=&n=` | the `n` closest vessels to a point, with class, flag, distance and bearing |
 | `GET /api/vessel/<mmsi>?lat=&lon=` | one vessel, with its last 2 hours of track |
+| `GET / PUT /api/settings` | alert settings |
+| `GET /api/alerts` | last 100 alerts |
+| `POST /api/test-alert` | send a test notification |
 
 ## Notes
 - Destinations and ETAs are typed in by the crew and are often stale or abbreviated (e.g. "CA HAL").
 - Warships often switch AIS off or send little; many small boats have no AIS.
-- Anyone who can reach the monitor's port can read the vessel list (there are no settings to change). Keep it on your
+- Anyone who can reach the monitor's port can read the vessel list and change the alert settings. Keep it on your
   LAN or VPN.
 - Map: Esri World Gray Canvas (Esri, HERE, Garmin, © OpenStreetMap contributors). AIS data: aisstream.io.
 

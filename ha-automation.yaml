@@ -1,0 +1,28 @@
+# Home Assistant automation: turns ais-monitor's alerts into sticky phone notifications.
+# 1. Settings -> Automations -> Create -> Edit in YAML, paste this.
+# 2. Replace YOUR_WEBHOOK_ID with a long random string and notify.mobile_app_YOUR_PHONE with your phone's notify action.
+# 3. In ais-monitor's .env: HA_WEBHOOK=http://<your-ha>:8123/api/webhook/YOUR_WEBHOOK_ID, then restart it.
+# The data block is for the Android companion app (sticky, channel, tap to open the dashboard). Change clickAction
+# to your Ships view's path.
+alias: Ship alerts
+description: Sticky phone alerts from ais-monitor, e.g. warships and cruise ships entering the harbour.
+mode: queued
+max: 20
+triggers:
+  - trigger: webhook
+    webhook_id: YOUR_WEBHOOK_ID
+    allowed_methods: [POST]
+    local_only: true
+conditions: []
+actions:
+  - variables:
+      payload: >-
+        {% set j = trigger.json %}{% set icons = {'warship': 'mdi:shield-star', 'cruise': 'mdi:ferry',
+        'coastguard': 'mdi:lifebuoy'} %}{% set d = {'tag': j.tag, 'sticky': 'true', 'channel': 'Ship alerts',
+        'importance': 'high', 'priority': 'high', 'ttl': 0, 'clickAction': '/lovelace/ships',
+        'notification_icon': icons.get(j.kind, 'mdi:ferry')} %}{% if j.image %}{% set d = dict(d, image=j.image) %}{% endif %}{{ d }}
+  - action: notify.mobile_app_YOUR_PHONE
+    data:
+      title: "{{ trigger.json.title }}"
+      message: "{{ trigger.json.message }}"
+      data: "{{ payload }}"

@@ -14,7 +14,7 @@ const DEFAULTS = {
 
 const NM = 3440.065;
 const RAD = Math.PI / 180;
-const TABS = [["map", "Map", "mdi:map"], ["list", "Vessels", "mdi:format-list-bulleted"], ["vessel", "Vessel", "mdi:ferry"]];
+const TABS = [["map", "Map", "mdi:map"], ["list", "Vessels", "mdi:format-list-bulleted"], ["vessel", "Vessel", "mdi:ferry"], ["alerts", "Alerts", "mdi:bell-ring-outline"]];
 const CLASSES = [
   ["mil", "Military", "mdi:shield-star", "#d4a72c"],
   ["gov", "Government", "mdi:lifebuoy", "#ff7043"],
@@ -155,13 +155,13 @@ class ShipsCard extends HTMLElement {
 
   // ---- data ----------------------------------------------------------------------------------
 
-  async _mon(path) {
+  async _mon(path, opt = {}) {
     const all = this._config.monitor;
     const urls = this._base ? [this._base, ...all.filter((u) => u !== this._base)] : all;
     let err;
     for (const u of urls) {
       try {
-        const d = await getJSON(u.replace(/\/$/, "") + path, {}, 6000);
+        const d = await getJSON(u.replace(/\/$/, "") + path, opt, 6000);
         this._base = u;
         return d;
       } catch (e) {
@@ -347,6 +347,19 @@ class ShipsCard extends HTMLElement {
         .ch .ax { fill: var(--secondary-text-color); font-size: 10px; }
         .empty { padding: 30px 10px; text-align: center; color: var(--secondary-text-color); }
         .picks { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px; }
+        .agrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+        .agrid .panel { margin-top: 10px; }
+        .arow { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--divider-color); flex-wrap: wrap; font-size: .9em; }
+        .arow:last-child { border-bottom: none; }
+        .arow .grow { flex: 1; min-width: 160px; }
+        .arow .sub { font-size: .8em; color: var(--secondary-text-color); }
+        .arow input[type=number] { width: 64px; font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--divider-color);
+          background: var(--card-background-color, #fff); color: var(--primary-text-color); }
+        input.tg { appearance: none; -webkit-appearance: none; width: 38px; height: 22px; border-radius: 999px; background: var(--divider-color);
+          position: relative; cursor: pointer; flex: none; margin: 0; transition: background .15s; }
+        input.tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+        input.tg:checked { background: var(--primary-color); } input.tg:checked::after { left: 19px; }
+        label.arow { cursor: pointer; }
         .listbar { margin-top: 10px; font-size: .8em; color: var(--secondary-text-color); }
       </style>
       <ha-card>
@@ -380,6 +393,7 @@ class ShipsCard extends HTMLElement {
           <div class="listbar" id="lfoot"></div>
         </div>
         <div class="pane" id="p-vessel"><div id="vessel"></div></div>
+        <div class="pane" id="p-alerts"><div id="alerts"></div></div>
       </ha-card>`;
 
     this.$("tabs").addEventListener("click", (e) => {
@@ -455,6 +469,18 @@ class ShipsCard extends HTMLElement {
       else if (act === "close") this._select(null);
       else if (act === "locate") this._locate(Number(a.dataset.m));
       else if (act === "pick") this._select(Number(a.dataset.m));
+      else if (act === "test") {
+        a.disabled = true;
+        this._mon("/api/test-alert", { method: "POST" }).then(() => this._loadAlerts(), () => {}).finally(() => (a.disabled = false));
+      } else if (act === "harbour" && this._settings) {
+        const h = a.dataset.h, cur = this._settings.harbours || [];
+        this._saveSettings({ harbours: cur.includes(h) ? cur.filter((x) => x !== h) : [...cur, h] });
+      }
+    });
+    this.$("alerts").addEventListener("change", (e) => {
+      const el = e.target.closest("[data-set]");
+      if (!el) return;
+      this._saveSettings({ [el.dataset.set]: el.type === "checkbox" ? el.checked : Number(el.value) });
     });
     this._initMapInput();
     this._built = true;
@@ -468,6 +494,7 @@ class ShipsCard extends HTMLElement {
     this._save("tab", t);
     for (const b of this.$("tabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === t);
     for (const [k] of TABS) this.$("p-" + k).classList.toggle("on", k === t);
+    if (t === "alerts") this._loadAlerts();
     this._renderAll();
   }
 
@@ -498,6 +525,68 @@ class ShipsCard extends HTMLElement {
     if (this._tab === "map") this._renderMap();
     if (this._tab === "list") this._renderList();
     if (this._tab === "vessel") this._renderVessel();
+    if (this._tab === "alerts") this._renderAlerts();
+  }
+
+  // ---- alerts --------------------------------------------------------------------------------
+
+  async _loadAlerts() {
+    try {
+      [this._settings, this._alerts] = await Promise.all([this._mon("/api/settings"), this._mon("/api/alerts")]);
+      this._aErr = null;
+    } catch (e) {
+      this._aErr = e.message || String(e);
+    }
+    this._renderAlerts(true);
+  }
+
+  async _saveSettings(patch) {
+    try {
+      this._settings = await this._mon("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+      this._aErr = null;
+    } catch (e) {
+      this._aErr = e.message || String(e);
+    }
+    this._renderAlerts(true);
+  }
+
+  _renderAlerts(force) {
+    if (!this._built || this._tab !== "alerts") return;
+    const box = this.$("alerts");
+    if (!force && box.contains(this.shadowRoot.activeElement)) return;
+    const s = this._settings;
+    if (!s) {
+      box.innerHTML = `<div class="empty">${this._aErr ? `Can't reach ais-monitor (${esc(this._aErr)})` : "Loading…"}</div>`;
+      return;
+    }
+    const locs = this._status?.locations || [];
+    const sw = (k, on, l, sub) => `<label class="arow"><input type="checkbox" class="tg" data-set="${k}" ${on ? "checked" : ""}><div class="grow">${l}<div class="sub">${sub}</div></div></label>`;
+    const icon = { warship: "mdi:shield-star", cruise: "mdi:ferry", coastguard: "mdi:lifebuoy", test: "mdi:bell-check" };
+    box.innerHTML = `
+      <div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:0">
+        <ha-icon icon="mdi:cellphone-message" style="color:var(--primary-color)"></ha-icon>
+        <div style="flex:1;min-width:220px;font-size:.88em">Sticky phone notifications when a ship <b>enters a harbour</b>: it crosses into the circle around the harbour location after being seen outside it, so ships already in port never alert. Sent by ais-monitor through Home Assistant; tap one to open this card.
+          <div class="muted">${s.webhook ? `<span class="good">Webhook set</span>` : `<span class="bad">No HA_WEBHOOK in ais-monitor's .env: alerts are only logged</span>`}${this._aErr ? ` · <span class="bad">${esc(this._aErr)}</span>` : ""}</div></div>
+        <button class="btn" data-act="test"><ha-icon icon="mdi:send"></ha-icon>Send a test</button>
+      </div>
+      <div class="agrid">
+        <div class="panel"><h4>Alert me about</h4>
+          ${sw("warships", s.warships, "Warships", "military vessels, e.g. HMCS / USS / HMS in the name, or AIS type 35")}
+          ${sw("cruise", s.cruise, "Cruise ships", "passenger vessels 200 m or longer")}
+          ${sw("coastguard", s.coastguard, "Coast Guard ships", "CCGS / USCGC")}
+          <div class="arow"><div class="grow">Harbour circle<div class="sub">radius around each harbour location below</div></div><input type="number" data-set="radius" value="${esc(s.radius)}" min="0.5" max="50" step="0.5"> nm</div>
+          <div class="arow"><div class="grow">Same ship again after<div class="sub">it left and came back</div></div><input type="number" data-set="cooldownHours" value="${esc(s.cooldownHours)}" min="1" max="168"> h</div>
+        </div>
+        <div class="panel"><h4>Harbours to watch</h4>
+          <div class="chips">${locs.map((l) => `<button data-act="harbour" data-h="${esc(l.name)}" class="${s.harbours.includes(l.name) ? "on" : ""}">${esc(l.name)}</button>`).join("")}</div>
+          <div class="fnote">Tap to turn on or off. The locations come from LOCATIONS in ais-monitor's .env.</div>
+        </div>
+      </div>
+      <div class="panel"><h4>Recent alerts</h4>
+        ${(this._alerts || []).map((a) => `<div class="arow"><span class="muted" style="font-size:.78em;min-width:92px">${new Date(a.t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+          <ha-icon icon="${icon[a.kind] || "mdi:bell"}" style="--mdc-icon-size:20px;color:var(--primary-color)"></ha-icon>
+          <div class="grow">${esc(a.title)}${a.sent === false ? ` <span class="pill bad">not delivered</span>` : ""}<div class="sub" style="white-space:pre-line">${esc(a.message)}</div></div></div>`).join("") || `<div class="muted" style="font-size:.88em">None yet</div>`}
+      </div>`;
   }
 
   _renderHead() {
