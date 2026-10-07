@@ -25,8 +25,13 @@ const WRECKS = [
     note: "The White Star liner, short of coal on her way to Halifax, struck Mars Rock off Meagher's Island near Terence Bay at night. " +
       "Local fishermen and residents rescued survivors from the rocks; many of the dead are buried at Terence Bay." },
   { kind: "civil", name: "SS Mont-Blanc (Halifax Explosion)", lat: 44.669, lon: -63.596, date: "6 December 1917", lost: "about 2,000", approx: true,
-    note: "The munitions ship collided with SS Imo in the Narrows, caught fire and exploded: the largest man-made explosion before the atomic bomb. " +
-      "About 2,000 people were killed and 9,000 injured, and Richmond, in Halifax's North End, was levelled." },
+    note: "The munitions ship collided with SS Imo in the Narrows, caught fire and exploded at 9:04:35 a.m.: the largest man-made explosion " +
+      "before the atomic bomb. About 2,000 people were killed, many of them children on their way to school and families watching the fire " +
+      "from their windows, and some 9,000 were injured, hundreds of them in the eyes by flying glass. Richmond, in Halifax's North End, " +
+      "was levelled, the Mi'kmaq settlement at Turtle Grove in Dartmouth was destroyed, and 6,000 people were left homeless as a blizzard set in. " +
+      "Train dispatcher Vince Coleman stayed at his telegraph to stop an incoming train and was killed at his post. " +
+      "The victims are remembered at the Fort Needham Memorial Bell Tower; the unidentified dead are buried at Fairview Lawn Cemetery. " +
+      "Boston's rescue train is still thanked every year with Nova Scotia's gift of a Christmas tree." },
   { kind: "civil", name: "RMS Empress of Ireland", lat: 48.625, lon: -68.408, date: "29 May 1914", lost: "1,012",
     note: "Rammed by the collier Storstad in fog in the St. Lawrence off Pointe-au-Père, she sank in 14 minutes: " +
       "Canada's worst peacetime maritime disaster." },
@@ -478,7 +483,7 @@ class ShipsCard extends HTMLElement {
         .attr a { color: inherit; }
         .pop, .fpanel { position: absolute; top: 10px; background: var(--card-background-color, #fff); border-radius: 12px; z-index: 2;
                box-shadow: var(--ha-card-box-shadow, 0 2px 10px rgba(0,0,0,.25)); padding: 10px 12px; display: none; cursor: default; }
-        .pop { left: 10px; width: min(310px, calc(100% - 70px)); }
+        .pop { left: 10px; width: min(310px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow: auto; box-sizing: border-box; }
         .fpanel { right: 56px; width: min(300px, calc(100% - 76px)); }
         .pop.on, .fpanel.on { display: block; }
         .pop .nm { font-size: 1.1em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
