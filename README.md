@@ -21,7 +21,7 @@ Two pieces:
   (name, MMSI, IMO or callsign; flies the map to it). Tabs:
   - **Map**: every vessel in view as you pan and zoom (with `WORLDWIDE=true`, anywhere aisstream covers; thinned
     to the largest 1,500 when zoomed far out), as hulls pointing along their course when moving and dots when moored or
-    at anchor, coloured by class, with range rings around the location, a class filter and a **satellite** imagery button. Tap one for a popup and its
+    at anchor, coloured by class, with range rings around the location, a class filter and a **satellite** imagery button. The filter also shows **wrecks**: 37 major shipwrecks and naval losses (Titanic, Lusitania, the Halifax Explosion, Empress of Ireland, Hood, Bismarck, Arizona, Yamato…), each with its date, lives lost and story; positions marked approximate where the exact site isn't public. Tap one for a popup and its
     recent track.
   - **Vessels**: a sortable list with flag, class, type, status, speed, course, distance, destination, length and
     last seen. Filter chips by class; 📍 jumps to the vessel on the map.
@@ -137,7 +137,7 @@ resource (Settings → Dashboards → ⋮ → Resources).
 | `rings` | `[1, 2, 5, 10, 25]` | Range rings around the location, nm |
 | `refresh` | `10` | Seconds between updates |
 | `map_height` | fills the screen | px |
-| `markers` | `true` | Landmarks on the map (built in: the **RMS Titanic** wreck site; tap for its story). `false` hides them; a list adds your own: `- {name: Sable Island, lat: 43.93, lon: -59.91, sub: Graveyard of the Atlantic, note: ...}` |
+| `markers` | `[]` | Your own landmarks on the map: a list like `- {name: Sable Island, lat: 43.93, lon: -59.91, sub: Graveyard of the Atlantic, note: ...}`. `false` also hides the shipwrecks |
 
 The header's location list also has **Centre of the map…**, which lists the vessels closest to wherever the map is
 centred (inside the areas the monitor receives).

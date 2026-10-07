@@ -10,21 +10,113 @@ const DEFAULTS = {
   rings: [1, 2, 5, 10, 25], // nm around the chosen location
   refresh: 10, // seconds
   map_height: null,
-  markers: true, // landmarks on the map: true (built-in), false, or a list of {name, lat, lon, sub, note} to add
+  markers: [], // your own landmarks on the map: a list of {name, lat, lon, sub, note}; false hides the shipwrecks too
 };
 
-// Built-in landmarks, drawn on the map; tap one for its note.
-const LANDMARKS = [
-  {
-    name: "RMS Titanic",
-    lat: 41.7256,
-    lon: -49.9469,
-    sub: "Wreck site · sank 15 April 1912",
-    note: "Struck an iceberg at 11:40 p.m. on 14 April 1912 and sank at 2:20 a.m.; about 1,500 of the 2,224 aboard were lost. " +
+// Major shipwrecks and naval losses, drawn on the map (filter: Wrecks). Positions from public sources; `approx` where
+// the wreck's exact position isn't published or is only known roughly. Tap one for its note.
+const WRECKS = [
+  // kind, name, lat, lon, date, lost, note, approx
+  { kind: "civil", name: "RMS Titanic", lat: 41.7256, lon: -49.9469, date: "15 April 1912", lost: "about 1,500",
+    note: "Struck an iceberg at 11:40 p.m. on 14 April and sank at 2:20 a.m.; about 1,500 of the 2,224 aboard were lost. " +
       "The wreck lies 3,800 m (12,500 ft) down in two main pieces and was found in 1985. " +
-      "Ships sent from Halifax recovered most of the victims found; 150 are buried in Halifax, 121 of them in Fairview Lawn Cemetery.",
-  },
+      "Ships sent from Halifax recovered most of the victims found; 150 are buried in Halifax, 121 of them in Fairview Lawn Cemetery." },
+  { kind: "civil", name: "SS Atlantic", lat: 44.462, lon: -63.717, date: "1 April 1873", lost: "about 535", approx: true,
+    note: "The White Star liner, short of coal on her way to Halifax, struck Mars Rock off Meagher's Island near Terence Bay at night. " +
+      "Local fishermen and residents rescued survivors from the rocks; many of the dead are buried at Terence Bay." },
+  { kind: "civil", name: "SS Mont-Blanc (Halifax Explosion)", lat: 44.669, lon: -63.596, date: "6 December 1917", lost: "about 2,000", approx: true,
+    note: "The munitions ship collided with SS Imo in the Narrows, caught fire and exploded: the largest man-made explosion before the atomic bomb. " +
+      "About 2,000 people were killed and 9,000 injured, and Richmond, in Halifax's North End, was levelled." },
+  { kind: "civil", name: "RMS Empress of Ireland", lat: 48.625, lon: -68.408, date: "29 May 1914", lost: "1,012",
+    note: "Rammed by the collier Storstad in fog in the St. Lawrence off Pointe-au-Père, she sank in 14 minutes: " +
+      "Canada's worst peacetime maritime disaster." },
+  { kind: "civil", name: "SS Caribou", lat: 47.3, lon: -59.4, date: "14 October 1942", lost: "137", approx: true,
+    note: "The Newfoundland ferry, crossing from North Sydney to Port aux Basques, was torpedoed by U-69 in the Cabot Strait. " +
+      "Many of the dead were women and children." },
+  { kind: "civil", name: "Ocean Ranger", lat: 46.73, lon: -48.83, date: "15 February 1982", lost: "84", approx: true,
+    note: "The semi-submersible drilling rig capsized in a winter storm on the Grand Banks, 170 nm off St. John's. All 84 crew were lost." },
+  { kind: "civil", name: "RMS Lusitania", lat: 51.41, lon: -8.55, date: "7 May 1915", lost: "1,198",
+    note: "Torpedoed by U-20 off the Old Head of Kinsale, Ireland, she sank in 18 minutes. " +
+      "128 Americans were among the dead, turning US opinion against Germany." },
+  { kind: "civil", name: "HMHS Britannic", lat: 37.7014, lon: 24.2842, date: "21 November 1916", lost: "30",
+    note: "Titanic's younger sister, serving as a hospital ship, struck a mine in the Kea Channel. " +
+      "The largest passenger ship on the sea floor." },
+  { kind: "civil", name: "SS Andrea Doria", lat: 40.4917, lon: -69.85, date: "26 July 1956", lost: "46",
+    note: "The Italian liner was struck by MS Stockholm in fog off Nantucket and sank 11 hours later; " +
+      "the rescue of over 1,600 people was one of the largest in history." },
+  { kind: "civil", name: "SS Central America", lat: 31.58, lon: -77.03, date: "12 September 1857", lost: "425", approx: true,
+    note: "The 'Ship of Gold' sank in a hurricane off the Carolinas carrying tons of California gold; " +
+      "her loss helped set off the Panic of 1857. The wreck was found in 1988." },
+  { kind: "civil", name: "SS Edmund Fitzgerald", lat: 46.998, lon: -85.11, date: "10 November 1975", lost: "29",
+    note: "The Great Lakes ore carrier sank suddenly in a November storm on Lake Superior, 17 miles from Whitefish Bay, " +
+      "with no distress call. All 29 crew were lost." },
+  { kind: "civil", name: "Princess Sophia", lat: 58.59, lon: -135.02, date: "25 October 1918", lost: "about 350", approx: true,
+    note: "The coastal steamer ran onto Vanderbilt Reef near Juneau in a snowstorm and sat there for 40 hours before a storm drove her off. " +
+      "No one aboard survived." },
+  { kind: "civil", name: "MV Wilhelm Gustloff", lat: 55.0728, lon: 17.4214, date: "30 January 1945", lost: "about 9,400",
+    note: "Packed with refugees and soldiers fleeing East Prussia, she was torpedoed by the Soviet submarine S-13: " +
+      "the deadliest single ship sinking in history." },
+  { kind: "civil", name: "MS Estonia", lat: 59.3833, lon: 21.6833, date: "28 September 1994", lost: "852",
+    note: "The ferry's bow visor failed in a storm on the way from Tallinn to Stockholm and she sank within an hour: " +
+      "Europe's deadliest peacetime shipwreck since the Second World War." },
+  { kind: "civil", name: "MV Doña Paz", lat: 13.0, lon: 121.65, date: "20 December 1987", lost: "about 4,400", approx: true,
+    note: "The overcrowded Philippine ferry collided with the tanker Vector in the Tablas Strait and burned: " +
+      "the deadliest peacetime maritime disaster." },
+  { kind: "civil", name: "SS Thistlegorm", lat: 27.8136, lon: 33.9208, date: "6 October 1941", lost: "9",
+    note: "The British cargo ship was bombed in the Red Sea with a cargo of trucks, motorcycles and munitions, " +
+      "now one of the world's best-known wreck dives." },
+  { kind: "civil", name: "SS Yongala", lat: -19.3047, lon: 147.6219, date: "23 March 1911", lost: "122",
+    note: "The passenger ship vanished in a cyclone off Queensland; her wreck wasn't identified until 1958." },
+  { kind: "civil", name: "Endurance", lat: -68.7392, lon: -52.3297, date: "21 November 1915", lost: "none",
+    note: "Shackleton's ship was crushed by the Weddell Sea ice. All 28 men survived after an epic escape; " +
+      "the wreck was found, remarkably intact, 3,000 m down in 2022." },
+  // Naval losses
+  { kind: "naval", name: "HMCS Esquimalt", lat: 44.47, lon: -63.43, date: "16 April 1945", lost: "44", approx: true,
+    note: "The minesweeper was torpedoed by U-190 off Chebucto Head, at the approaches to Halifax: " +
+      "the last Canadian warship lost in the Second World War." },
+  { kind: "naval", name: "USS Thresher", lat: 41.77, lon: -64.95, date: "10 April 1963", lost: "129", approx: true,
+    note: "The nuclear submarine was lost during deep-diving trials 220 nm east of Cape Cod: the worst submarine disaster in history." },
+  { kind: "naval", name: "HMS Hood", lat: 63.333, lon: -31.833, date: "24 May 1941", lost: "1,415",
+    note: "The pride of the Royal Navy blew up after a shell from Bismarck reached her magazines in the Denmark Strait. " +
+      "Three men survived." },
+  { kind: "naval", name: "Bismarck", lat: 48.167, lon: -16.2, date: "27 May 1941", lost: "about 2,100",
+    note: "Hunted down after sinking Hood, the German battleship was crippled by a torpedo from a Swordfish and sunk " +
+      "by the Home Fleet 300 nm west of Brest. 114 survived." },
+  { kind: "naval", name: "HMS Royal Oak", lat: 58.9289, lon: -2.9858, date: "14 October 1939", lost: "835",
+    note: "The battleship was torpedoed at anchor inside Scapa Flow by U-47. The wreck is a protected war grave." },
+  { kind: "naval", name: "HMT Lancastria", lat: 47.15, lon: -2.33, date: "17 June 1940", lost: "3,000 to 5,800", approx: true,
+    note: "The troopship was bombed off St-Nazaire while evacuating troops and civilians from France: " +
+      "Britain's worst maritime disaster." },
+  { kind: "naval", name: "Scharnhorst", lat: 72.27, lon: 28.68, date: "26 December 1943", lost: "1,932", approx: true,
+    note: "The German battleship was sunk off North Cape, Norway, by HMS Duke of York and her escorts. 36 survived." },
+  { kind: "naval", name: "Admiral Graf Spee", lat: -34.97, lon: -56.3, date: "17 December 1939", lost: "none (scuttled)", approx: true,
+    note: "After the Battle of the River Plate the 'pocket battleship' was scuttled by her crew off Montevideo." },
+  { kind: "naval", name: "USS Monitor", lat: 35.0017, lon: -75.4067, date: "31 December 1862", lost: "16",
+    note: "The ironclad that fought CSS Virginia at Hampton Roads foundered in a storm off Cape Hatteras." },
+  { kind: "naval", name: "USS Scorpion", lat: 32.92, lon: -33.15, date: "22 May 1968", lost: "99", approx: true,
+    note: "The nuclear submarine was lost southwest of the Azores on her way home to Norfolk; the cause is still debated." },
+  { kind: "naval", name: "HMS Erebus", lat: 68.24, lon: -98.87, date: "about 1848", lost: "129 (whole expedition)", approx: true,
+    note: "Franklin's flagship, abandoned in the ice searching for the Northwest Passage; none of the 129 men survived. " +
+      "Found by Parks Canada in 2014." },
+  { kind: "naval", name: "HMS Terror", lat: 68.92, lon: -98.92, date: "about 1848", lost: "129 (whole expedition)", approx: true,
+    note: "The Franklin expedition's second ship, found in 2016 in Terror Bay, King William Island, remarkably well preserved." },
+  { kind: "naval", name: "USS Arizona", lat: 21.3649, lon: -157.95, date: "7 December 1941", lost: "1,177",
+    note: "The battleship exploded in the attack on Pearl Harbor. The wreck is a memorial and still seeps oil." },
+  { kind: "naval", name: "Yamato", lat: 30.367, lon: 128.067, date: "7 April 1945", lost: "about 3,000",
+    note: "The largest battleship ever built was sunk by US carrier aircraft on a one-way mission to Okinawa." },
+  { kind: "naval", name: "Musashi", lat: 12.85, lon: 122.55, date: "24 October 1944", lost: "about 1,000", approx: true,
+    note: "Yamato's sister was sunk in the Sibuyan Sea during the Battle of Leyte Gulf. Found in 2015, 1,000 m down." },
+  { kind: "naval", name: "HMS Prince of Wales", lat: 3.56, lon: 104.475, date: "10 December 1941", lost: "327", approx: true,
+    note: "Sunk with HMS Repulse by Japanese aircraft off Malaya: the first capital ships sunk at sea by air power alone." },
+  { kind: "naval", name: "HMS Repulse", lat: 3.65, lon: 104.33, date: "10 December 1941", lost: "508", approx: true,
+    note: "The battlecruiser was sunk alongside HMS Prince of Wales by Japanese aircraft off Malaya." },
+  { kind: "naval", name: "USS Indianapolis", lat: 12.03, lon: 134.8, date: "30 July 1945", lost: "879", approx: true,
+    note: "Torpedoed by I-58 after delivering parts of the Hiroshima bomb; most of the crew died in the water over four days " +
+      "before being found. The wreck was located in 2017, 5,500 m down." },
+  { kind: "naval", name: "ARA General Belgrano", lat: -55.4, lon: -61.53, date: "2 May 1982", lost: "323", approx: true,
+    note: "The Argentine cruiser was torpedoed by the submarine HMS Conqueror during the Falklands War." },
 ];
+const WRECK_KINDS = { civil: { l: "Shipwrecks", c: "#8e1b1b", i: "mdi:ferry" }, naval: { l: "Naval losses", c: "#2f4f8f", i: "mdi:anchor" } };
 
 const NM = 3440.065;
 const RAD = Math.PI / 180;
@@ -132,6 +224,7 @@ class ShipsCard extends HTMLElement {
     this._sortDir = Number(get("sortdir", "1"));
     this._listCls = get("listcls", "all");
     this._fCls = new Set(get("mapcls", "").split(",").filter(Boolean));
+    this._wrecks = new Set(get("wrecks", "civil,naval").split(",").filter(Boolean)); // wreck kinds shown on the map
     this._vessels = [];
     this._view = null;
   }
@@ -556,6 +649,13 @@ class ShipsCard extends HTMLElement {
       if (!b) return;
       if (b.dataset.f === "reset") this._fCls.clear();
       else if (b.dataset.f === "close") this._fOpen = false;
+      else if (b.dataset.f === "wreck") {
+        this._wrecks.has(b.dataset.v) ? this._wrecks.delete(b.dataset.v) : this._wrecks.add(b.dataset.v);
+        this._save("wrecks", [...this._wrecks].join(","));
+        this._lm = null;
+        this._renderMap();
+        return;
+      }
       else this._fCls.has(b.dataset.v) ? this._fCls.delete(b.dataset.v) : this._fCls.add(b.dataset.v);
       this._save("mapcls", [...this._fCls].join(","));
       this._renderMap();
@@ -826,7 +926,8 @@ class ShipsCard extends HTMLElement {
 
   _landmarks() {
     const m = this._config.markers;
-    return m === false ? [] : [...LANDMARKS, ...(Array.isArray(m) ? m.filter((x) => isFinite(x?.lat) && isFinite(x?.lon)) : [])];
+    if (m === false) return [];
+    return [...WRECKS.filter((x) => this._wrecks.has(x.kind)), ...(Array.isArray(m) ? m.filter((x) => isFinite(x?.lat) && isFinite(x?.lon)) : [])];
   }
 
   _tag(v) {
@@ -1041,8 +1142,9 @@ class ShipsCard extends HTMLElement {
       const on = this._lm === i;
       g += `<g class="lm" transform="translate(${p[0].toFixed(1)},${p[1].toFixed(1)})">`;
       if (on) g += `<circle class="selring" r="13"/>`;
-      g += `<path d="M0,-7L7,0L0,7L-7,0Z" fill="#8e1b1b" stroke="#fff" stroke-width="1.5"/><circle r="1.8" fill="#fff"/>`;
-      if (this._labels || on) g += `<text class="lbl" x="11" y="-1">${esc(m.name)}</text><text class="lbl2" x="11" y="11">${esc(m.year || (m.sub || "").replace(/^.*?(\d{4}).*$/, "$1"))}</text>`;
+      const col = WRECK_KINDS[m.kind]?.c || "#8e1b1b", year = m.year || (m.date || m.sub || "").replace(/^.*?(\d{4}).*$/, "$1");
+      g += `<path d="M0,-7L7,0L0,7L-7,0Z" fill="${col}" stroke="#fff" stroke-width="1.5"/><circle r="1.8" fill="#fff"/>`;
+      if (on || (this._labels && (v.z >= 4.5 || !m.kind))) g += `<text class="lbl" x="11" y="-1">${esc(m.name)}</text><text class="lbl2" x="11" y="11">${esc(year)}</text>`;
       g += `</g>`;
     });
     const shown = (x) => !this._fCls.size || this._fCls.has(x.cls) || x.mmsi === this._sel;
@@ -1095,7 +1197,11 @@ class ShipsCard extends HTMLElement {
     const html = `<h5>Show on the map${on ? `<a data-f="reset">Show all</a>` : ""}<a data-f="close" style="${on ? "margin-left:10px" : ""}">Close</a></h5>
       <div class="chips">${CLASSES.filter(([k]) => cc[k] || this._fCls.has(k)).map(([k, l, i, col]) =>
         `<button data-f="cls" data-v="${k}" class="${this._fCls.has(k) ? "on" : ""}" style="--c:${col}"><ha-icon icon="${i}"></ha-icon>${l} <span class="n">${cc[k] || 0}</span></button>`).join("")}</div>
-      <div class="fnote">${on ? `Showing ${shown} of ${all.length}. ` : ""}The selected vessel always stays visible.</div>`;
+      <div class="fnote">${on ? `Showing ${shown} of ${all.length}. ` : ""}The selected vessel always stays visible.</div>
+      ${this._config.markers === false ? "" : `<h5>Wrecks</h5>
+      <div class="chips">${Object.entries(WRECK_KINDS).map(([k, w]) =>
+        `<button data-f="wreck" data-v="${k}" class="${this._wrecks.has(k) ? "on" : ""}" style="--c:${w.c}"><ha-icon icon="${w.i}"></ha-icon>${w.l} <span class="n">${WRECKS.filter((x) => x.kind === k).length}</span></button>`).join("")}</div>
+      <div class="fnote">Major shipwrecks and naval losses; tap a ◆ for its story.</div>`}`;
     if (html !== this._fHtml) panel.innerHTML = this._fHtml = html;
   }
 
@@ -1107,11 +1213,12 @@ class ShipsCard extends HTMLElement {
     if (m) {
       const c = this._center(), d = c && distNm(c.lat, c.lon, m.lat, m.lon), b = c && bearing(c.lat, c.lon, m.lat, m.lon);
       pop.innerHTML = `
-        <div class="nm"><ha-icon icon="mdi:map-marker-star" style="color:#c62828"></ha-icon>${esc(m.name)}<ha-icon class="x" icon="mdi:close" data-act="close"></ha-icon></div>
-        <div class="sub">${esc(m.sub || "")}</div>
+        <div class="nm"><ha-icon icon="${WRECK_KINDS[m.kind]?.i || "mdi:map-marker-star"}" style="color:${WRECK_KINDS[m.kind]?.c || "#c62828"}"></ha-icon>${esc(m.name)}<ha-icon class="x" icon="mdi:close" data-act="close"></ha-icon></div>
+        <div class="sub">${esc(m.kind ? `${m.kind === "naval" ? "Naval loss" : "Shipwreck"} · ${m.date}` : m.sub || "")}</div>
         ${m.note ? `<div class="lmnote">${esc(m.note)}</div>` : ""}
         <div class="kv">
-          <div><span>Position</span><b>${Math.abs(m.lat).toFixed(4)}°${m.lat < 0 ? "S" : "N"} ${Math.abs(m.lon).toFixed(4)}°${m.lon < 0 ? "W" : "E"}</b></div>
+          ${m.lost ? `<div><span>Lives lost</span><b>${esc(m.lost)}</b></div>` : ""}
+          <div><span>Position${m.approx ? " (approx.)" : ""}</span><b>${m.approx ? "~" : ""}${Math.abs(m.lat).toFixed(m.approx ? 2 : 4)}°${m.lat < 0 ? "S" : "N"} ${Math.abs(m.lon).toFixed(m.approx ? 2 : 4)}°${m.lon < 0 ? "W" : "E"}</b></div>
           ${d != null ? `<div><span>From ${esc(c.name || "the location")}</span><b>${num(d)} nm ${compass(b)}</b></div>` : ""}
         </div>`;
       return;
