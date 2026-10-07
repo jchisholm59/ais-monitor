@@ -21,7 +21,7 @@ Two pieces:
   (name, MMSI, IMO or callsign; flies the map to it). Tabs:
   - **Map**: every vessel in view as you pan and zoom (with `WORLDWIDE=true`, anywhere aisstream covers; thinned
     to the largest 1,500 when zoomed far out), as hulls pointing along their course when moving and dots when moored or
-    at anchor, coloured by class, with range rings around the location and a class filter. Tap one for a popup and its
+    at anchor, coloured by class, with range rings around the location, a class filter and a **satellite** imagery button. Tap one for a popup and its
     recent track.
   - **Vessels**: a sortable list with flag, class, type, status, speed, course, distance, destination, length and
     last seen. Filter chips by class; 📍 jumps to the vessel on the map.
@@ -159,7 +159,7 @@ centred (inside the areas the monitor receives).
 - Warships often switch AIS off or send little; many small boats have no AIS.
 - Anyone who can reach the monitor's port can read the vessel list and change the alert settings. Keep it on your
   LAN or VPN.
-- Map: Esri World Gray Canvas (Esri, HERE, Garmin, © OpenStreetMap contributors). AIS data: aisstream.io.
+- Map: Esri World Gray Canvas and World Imagery (Esri, Maxar, Earthstar Geographics, HERE, Garmin, © OpenStreetMap contributors). AIS data: aisstream.io.
 
 ## License
 MIT

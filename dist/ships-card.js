@@ -103,6 +103,7 @@ class ShipsCard extends HTMLElement {
     this._tab = get("tab", "map");
     this._loc = get("loc", "");
     this._labels = get("labels", "1") === "1";
+    this._sat = get("sat", "0") === "1"; // satellite basemap
     this._sort = get("sort", "dist");
     this._sortDir = Number(get("sortdir", "1"));
     this._listCls = get("listcls", "all");
@@ -436,12 +437,13 @@ class ShipsCard extends HTMLElement {
               <button id="zout" title="Zoom out"><ha-icon icon="mdi:minus"></ha-icon></button>
               <button id="home" title="Back to the location"><ha-icon icon="mdi:crosshairs-gps"></ha-icon></button>
               <button id="lbl" title="Labels"><ha-icon icon="mdi:label-outline"></ha-icon></button>
+              <button id="sat" title="Satellite"><ha-icon icon="mdi:satellite-variant"></ha-icon></button>
               <button id="flt" title="Filter by class"><ha-icon icon="mdi:filter-variant"></ha-icon><span class="badge" id="fbadge"></span></button>
             </div>
             <div class="pop" id="pop"></div>
             <div class="fpanel" id="fpanel"></div>
             <div class="legend">${CLASSES.slice(0, 6).map(([, l, , col]) => `<span><i style="background:${col}"></i>${l}</span>`).join("")}<span>● stopped</span><span>▲ moving</span><span id="inview"></span></div>
-            <div class="attr">AIS: aisstream.io · Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></div>
+            <div class="attr">AIS: aisstream.io · Esri, Maxar, Earthstar Geographics, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></div>
           </div>
         </div>
         <div class="pane" id="p-list">
@@ -512,6 +514,11 @@ class ShipsCard extends HTMLElement {
     this.$("lbl").addEventListener("click", () => {
       this._labels = !this._labels;
       this._save("labels", this._labels ? 1 : 0);
+      this._renderMap();
+    });
+    this.$("sat").addEventListener("click", () => {
+      this._sat = !this._sat;
+      this._save("sat", this._sat ? 1 : 0);
       this._renderMap();
     });
     this.$("flt").addEventListener("click", () => {
@@ -906,7 +913,7 @@ class ShipsCard extends HTMLElement {
     });
   }
 
-  // Esri's gray canvas basemap (free, no key) plus its labels; tiles from the nearest whole zoom, scaled.
+  // Esri's gray canvas basemap, or World Imagery when satellite is on (free, no key), plus labels; tiles from the nearest whole zoom, scaled.
   _renderTiles(v, w, h) {
     const box = this.$("tiles");
     if (!this._tiles) this._tiles = new Map();
@@ -916,10 +923,13 @@ class ShipsCard extends HTMLElement {
     const y0 = Math.max(0, Math.floor((v.y * S - h / 2) / T)), y1 = Math.min(n - 1, Math.floor((v.y * S + h / 2) / T));
     const shade = this._dark ? "Dark" : "Light";
     const keep = new Set();
+    const src = (layer) => this._sat
+      ? (layer === "Base" ? "World_Imagery" : "Reference/World_Boundaries_and_Places")
+      : `Canvas/World_${shade}_Gray_${layer}`;
     for (const layer of ["Base", "Reference"]) {
       for (let tx = x0; tx <= x1; tx++) {
         for (let ty = y0; ty <= y1; ty++) {
-          const wx = ((tx % n) + n) % n, key = `${layer}/${tz}/${tx}/${ty}`;
+          const wx = ((tx % n) + n) % n, key = `${this._sat ? "s" : shade}/${layer}/${tz}/${tx}/${ty}`;
           keep.add(key);
           let img = this._tiles.get(key);
           if (!img) {
@@ -927,7 +937,7 @@ class ShipsCard extends HTMLElement {
             img.alt = "";
             img.decoding = "async";
             img.style.zIndex = layer === "Base" ? 0 : 1;
-            img.src = `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${shade}_Gray_${layer}/MapServer/tile/${tz}/${ty}/${wx}`;
+            img.src = `https://server.arcgisonline.com/ArcGIS/rest/services/${src(layer)}/MapServer/tile/${tz}/${ty}/${wx}`;
             this._tiles.set(key, img);
             box.appendChild(img);
           }
@@ -947,13 +957,15 @@ class ShipsCard extends HTMLElement {
     const v = this._view || this._defaultView();
     if (!v) return;
     const map = this.$("map");
-    map.style.setProperty("--sh-ring", this._dark ? "rgba(140,170,255,.5)" : "rgba(40,70,160,.45)");
-    map.style.setProperty("--sh-ring-t", this._dark ? "#b4c6ff" : "#28469f");
-    map.style.setProperty("--sh-halo", this._dark ? "rgba(0,0,0,.85)" : "rgba(255,255,255,.9)");
-    map.style.setProperty("--sh-text", this._dark ? "#f2f2f2" : "#1d1d1d");
-    map.style.setProperty("--sh-text2", this._dark ? "#c9c9c9" : "#444");
+    const dk = this._dark || this._sat;
+    map.style.setProperty("--sh-ring", dk ? "rgba(140,170,255,.5)" : "rgba(40,70,160,.45)");
+    map.style.setProperty("--sh-ring-t", dk ? "#b4c6ff" : "#28469f");
+    map.style.setProperty("--sh-halo", dk ? "rgba(0,0,0,.85)" : "rgba(255,255,255,.9)");
+    map.style.setProperty("--sh-text", dk ? "#f2f2f2" : "#1d1d1d");
+    map.style.setProperty("--sh-text2", dk ? "#c9c9c9" : "#444");
     this._renderTiles(v, w, h);
     this.$("lbl").classList.toggle("on", this._labels);
+    this.$("sat").classList.toggle("on", this._sat);
     const P = (lat, lon) => this._pt(lat, lon, v, w, h);
     const inView = ([x, y], m = 40) => x > -m && y > -m && x < w + m && y < h + m;
     let g = "";
@@ -1000,8 +1012,8 @@ class ShipsCard extends HTMLElement {
       g += far && !isSel
         ? `<circle r="2.6" fill="${col}"/>`
         : stopped
-        ? `<circle r="${(4.5 * sc).toFixed(1)}" fill="${col}" stroke="${this._dark ? "#000" : "#222"}" stroke-width="1"/>`
-        : `<path d="${HULL}" transform="rotate(${Math.round(rot)}) scale(${sc.toFixed(2)})" fill="${col}" stroke="${this._dark ? "#000" : "#222"}" stroke-width=".9"/>`;
+        ? `<circle r="${(4.5 * sc).toFixed(1)}" fill="${col}" stroke="${this._dark || this._sat ? "#000" : "#222"}" stroke-width="1"/>`
+        : `<path d="${HULL}" transform="rotate(${Math.round(rot)}) scale(${sc.toFixed(2)})" fill="${col}" stroke="${this._dark || this._sat ? "#000" : "#222"}" stroke-width=".9"/>`;
       // Stopped vessels crowd a harbour: label them only when zoomed in (or selected).
       if (isSel || (this._labels && (stopped ? v.z >= 13 : v.z >= 9))) {
         g += `<text class="lbl" x="${10 * sc + 3}" y="-1">${esc(x.name || x.mmsi)}</text>`;
