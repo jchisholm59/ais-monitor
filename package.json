@@ -1,0 +1,11 @@
+{
+  "name": "ais-monitor",
+  "version": "1.0.0",
+  "description": "Keeps a live table of AIS vessels from aisstream.io for a Home Assistant Ships card: closest vessels to a location, classified",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}
