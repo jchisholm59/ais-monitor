@@ -25,7 +25,7 @@ Two pieces:
   (name, MMSI, IMO or callsign; flies the map to it). Tabs:
   - **Map**: every vessel in view as you pan and zoom (with `WORLDWIDE=true`, anywhere aisstream covers; thinned
     to the largest 1,500 when zoomed far out), as hulls pointing along their course when moving and dots when moored or
-    at anchor, coloured by class, with range rings around the location, a class filter and a **satellite** imagery button. The filter also shows **wrecks**: 37 major shipwrecks and naval losses (Titanic, Lusitania, the Halifax Explosion, Empress of Ireland, Hood, Bismarck, Arizona, Yamato…), each with its date, lives lost and story; positions marked approximate where the exact site isn't public. Tap one for a popup and its
+    at anchor, coloured by class, with range rings around the location, a class filter and a **satellite** imagery button. The filter also shows **wrecks**: 43 major shipwrecks and naval losses (Titanic, Lusitania, the Halifax Explosion, Empress of Ireland, Sable Island's "Graveyard of the Atlantic", Hood, Bismarck, Arizona, Yamato…), each with its date, lives lost and story; positions marked approximate where the exact site isn't public. Tap one for a popup and its
     recent track.
   - **Vessels**: a sortable list with flag, class, type, status, speed, course, distance, destination, length and
     last seen. Filter chips by class; 📍 jumps to the vessel on the map.

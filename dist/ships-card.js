@@ -35,6 +35,25 @@ const WRECKS = [
       "Many of the dead were women and children." },
   { kind: "civil", name: "Ocean Ranger", lat: 46.73, lon: -48.83, date: "15 February 1982", lost: "84", approx: true,
     note: "The semi-submersible drilling rig capsized in a winter storm on the Grand Banks, 170 nm off St. John's. All 84 crew were lost." },
+  // Sable Island, "Graveyard of the Atlantic": individual wreck sites on its shifting bars are only roughly known.
+  { kind: "civil", name: "Sable Island: Graveyard of the Atlantic", lat: 43.935, lon: -59.91, date: "1583 to the 20th century", approx: true,
+    note: "Fog, strong currents and shifting sandbars running out for miles from each end of this crescent of sand have claimed more than " +
+      "350 recorded ships. Nova Scotia set up a lifesaving station here in 1801, the Humane Establishment, " +
+      "whose crews and horses rescued hundreds of shipwrecked people. Few wrecks remain visible: the sand buries them." },
+  { kind: "civil", name: "Delight (Gilbert expedition)", lat: 44.0, lon: -60.25, date: "29 August 1583", lost: "most of her crew", approx: true,
+    note: "Sir Humphrey Gilbert's supply ship ran onto the bars off Sable Island on the way home from claiming Newfoundland for England: " +
+      "the island's first recorded wreck. Gilbert himself was lost when his own ship foundered on the voyage home." },
+  { kind: "civil", name: "Francis", lat: 43.95, lon: -60.08, date: "December 1799", lost: "all aboard", approx: true,
+    note: "The ship carrying Prince Edward, Duke of Kent's household and belongings to Halifax was wrecked on Sable with no survivors. " +
+      "The loss led to the island's lifesaving station two years later." },
+  { kind: "civil", name: "SS State of Virginia", lat: 43.92, lon: -59.96, date: "July 1879", lost: "9", approx: true,
+    note: "The passenger steamer ran ashore on Sable's south side in fog; most aboard were saved by the island's lifesavers, " +
+      "but several women and children drowned when a lifeboat capsized in the surf." },
+  { kind: "naval", name: "HMS Barbadoes", lat: 43.96, lon: -59.85, date: "September 1812", approx: true,
+    note: "The Royal Navy frigate was wrecked on Sable Island's bars during the War of 1812, one of several warships the island claimed." },
+  { kind: "civil", name: "La Bourgogne", lat: 43.0, lon: -60.1, date: "4 July 1898", lost: "about 549", approx: true,
+    note: "The French liner, New York to Le Havre, collided in fog with the sailing ship Cromartyshire about 60 miles south of Sable Island " +
+      "and sank in under an hour. Of some 300 women aboard, only one survived; the conduct of some of the crew caused an outcry." },
   { kind: "civil", name: "RMS Lusitania", lat: 51.41, lon: -8.55, date: "7 May 1915", lost: "1,198",
     note: "Torpedoed by U-20 off the Old Head of Kinsale, Ireland, she sank in 18 minutes. " +
       "128 Americans were among the dead, turning US opinion against Germany." },
