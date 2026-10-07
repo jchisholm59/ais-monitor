@@ -10,6 +10,8 @@ The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (ai
 |---|---|
 | ![Map zoomed out over Northern Europe, every vessel in view](docs/world.png) | ![Vessel tab: a cruise ship's flag, size, draught, destination and ETA](docs/vessel.png) |
 
+![Wrecks: major shipwrecks and naval losses across the North Atlantic, with the Titanic's story open and the filter's Wrecks section](docs/wrecks.png)
+
 | Vessels | Locations | Alerts |
 |---|---|---|
 | ![Vessels tab: the 50 closest, with flags, classes and filter chips](docs/vessels.png) | ![Manage locations: a place search adding a new location](docs/locations.png) | ![Alerts tab: warships and cruise ships entering a harbour](docs/alerts.png) |
