@@ -4,6 +4,6 @@ module.exports = {
     name: 'ais-monitor',
     script: 'server.js',
     cwd: __dirname,
-    max_memory_restart: '300M',
+    max_memory_restart: '800M',
   }],
 };

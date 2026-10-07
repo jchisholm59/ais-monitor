@@ -25,8 +25,21 @@ const LOCATIONS = env('LOCATIONS')
   .map((m) => ({ name: m[1].trim(), lat: Number(m[2]), lon: Number(m[3]) }));
 if (!LOCATIONS.length && Number.isFinite(AREA.lat)) LOCATIONS.push({ name: env('AREA_NAME', 'Area centre'), lat: AREA.lat, lon: AREA.lon });
 // What to receive: a box around each location (LOCATION_RADIUS_NM), plus the wider AREA if set. One connection.
+// Locations edited from the card are saved in data/locations.json and replace the .env list from then on.
+const LOCATIONS_FILE = path.join(__dirname, 'data', 'locations.json');
+try {
+  const saved = JSON.parse(fs.readFileSync(LOCATIONS_FILE, 'utf8'));
+  if (Array.isArray(saved) && saved.length) LOCATIONS.splice(0, LOCATIONS.length, ...saved);
+} catch (e) {}
 const LOCATION_RADIUS = num('LOCATION_RADIUS_NM', 40);
-const AREAS = [...(Number.isFinite(AREA.lat) ? [AREA] : []), ...LOCATIONS.map((l) => ({ lat: l.lat, lon: l.lon, radius: LOCATION_RADIUS }))];
+// WORLDWIDE=true: receive every vessel aisstream has (~135 messages/s, ~6.5 GB/day); the locations still serve the
+// card's location list and the harbour alerts.
+const WORLDWIDE = /^(1|true|yes)$/i.test(env('WORLDWIDE'));
+const AREAS = [];
+function computeAreas() {
+  AREAS.splice(0, AREAS.length, ...(Number.isFinite(AREA.lat) ? [AREA] : []), ...LOCATIONS.map((l) => ({ lat: l.lat, lon: l.lon, radius: LOCATION_RADIUS })));
+}
+computeAreas();
 const CLOSEST = num('CLOSEST', 50);
 const HA_WEBHOOK = env('HA_WEBHOOK');
 
@@ -179,7 +192,11 @@ function onPosition(v, p, meta) {
   if (meta?.ShipName) setName(v, meta.ShipName);
   // Track: a point when it has moved ~50 m, or every 5 min.
   const last = v.track[v.track.length - 1];
-  if (!last || dist(last[1], last[2], lat, lon) > 0.027 || now - last[0] > 300_000) v.track.push([now, lat, lon, v.sog]);
+  // A point every 2 min or 1 nm (at 135 messages/s worldwide, every report would be far too many), 60 at most.
+  if (!last || now - last[0] > 120_000 || (now - last[0] > 20_000 && dist(last[1], last[2], lat, lon) > 1)) {
+    v.track.push([now, lat, lon, v.sog]);
+    if (v.track.length > 60) v.track.shift();
+  }
   while (v.track.length && now - v.track[0][0] > TRACK_MS) v.track.shift();
   checkHarbours(v);
 }
@@ -240,14 +257,43 @@ function boxOf(a) {
   const dLat = a.radius / 60, dLon = a.radius / (60 * Math.cos(a.lat * RAD));
   return [[a.lat - dLat, a.lon - dLon], [a.lat + dLat, a.lon + dLon]];
 }
+function subscribe() {
+  ws.send(JSON.stringify({ APIKey: KEY, BoundingBoxes: WORLDWIDE ? [[[-90, -180], [90, 180]]] : AREAS.map(boxOf),
+    FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport', 'ShipStaticData', 'StaticDataReport'] }));
+}
+
+// Add/update (by name), remove, or make default. Not worldwide: resubscribe to the new set of areas.
+function editLocations(op, b) {
+  const name = String(b.name || '').trim().slice(0, 40);
+  const i = LOCATIONS.findIndex((l) => l.name === name);
+  if (op === 'add') {
+    const lat = Number(b.lat), lon = Number(b.lon);
+    if (!name || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) throw new Error('name, lat and lon are needed');
+    const loc = { name, lat: Math.round(lat * 1e5) / 1e5, lon: Math.round(lon * 1e5) / 1e5 };
+    if (i >= 0) LOCATIONS[i] = loc;
+    else if (LOCATIONS.length >= 50) throw new Error('50 locations at most');
+    else LOCATIONS.push(loc);
+  } else if (op === 'remove' && i >= 0) {
+    if (LOCATIONS.length === 1) throw new Error('keep at least one location');
+    LOCATIONS.splice(i, 1);
+    settings.harbours = settings.harbours.filter((h) => h !== name);
+    writeJson(SETTINGS_FILE, settings);
+  } else if (op === 'default' && i > 0) {
+    LOCATIONS.unshift(...LOCATIONS.splice(i, 1));
+  }
+  writeJson(LOCATIONS_FILE, LOCATIONS);
+  computeAreas();
+  if (!WORLDWIDE && ws?.readyState === 1) subscribe();
+  return LOCATIONS;
+}
+
 function connect() {
   if (!KEY) return (stats.error = 'AISSTREAM_KEY is not set in .env');
-  if (!AREAS.length) return (stats.error = 'Set LOCATIONS (or AREA_LAT / AREA_LON) in .env');
+  if (!AREAS.length && !WORLDWIDE) return (stats.error = 'Set LOCATIONS (or AREA_LAT / AREA_LON, or WORLDWIDE=true) in .env');
   ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
   ws.onopen = () => {
     // Must subscribe within 3 s of connecting.
-    ws.send(JSON.stringify({ APIKey: KEY, BoundingBoxes: AREAS.map(boxOf),
-      FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport', 'ShipStaticData', 'StaticDataReport'] }));
+    subscribe();
     Object.assign(stats, { connected: true, since: Date.now(), error: null });
     backoff = 5000;
     log('connected to aisstream');
@@ -287,7 +333,9 @@ setInterval(() => {
 function save() {
   const now = Date.now();
   for (const [k, v] of vessels) if (now - Math.max(v.staticAt || 0, v.posAt || 0) > KEEP_STATIC_MS) vessels.delete(k);
-  writeJson(VESSELS_FILE, [...vessels.values()].map(({ track, ...v }) => ({ ...v, track: now - (v.posAt || 0) < KEEP_POSITION_MS ? track : [] })));
+  // Names/types for everyone; tracks only near the locations (keeps the file small when worldwide).
+  const near = (v) => v.lat !== undefined && LOCATIONS.some((l) => dist(l.lat, l.lon, v.lat, v.lon) < LOCATION_RADIUS * 1.5);
+  writeJson(VESSELS_FILE, [...vessels.values()].map(({ track, ...v }) => ({ ...v, track: now - (v.posAt || 0) < KEEP_POSITION_MS && near(v) ? track : [] })));
 }
 
 // ---- alerts ----------------------------------------------------------------
@@ -428,6 +476,43 @@ function publicVessel(v, c) {
   return out;
 }
 
+// Vessels inside a map view (bbox=south,west,north,east). Zoomed far out there can be thousands, so it thins them
+// evenly: a 48 x 30 grid over the view, the largest vessels in each cell first, up to `limit` in all.
+function inView(url, c, live) {
+  const [s, w, n, e] = (url.searchParams.get('bbox') || '').split(',').map(Number);
+  if (![s, w, n, e].every(Number.isFinite)) return { error: 'bbox=south,west,north,east' };
+  const limit = Math.min(3000, Number(url.searchParams.get('limit')) || 1500);
+  const sel = Number(url.searchParams.get('sel')) || 0;
+  const lonIn = w <= e ? (lon) => lon >= w && lon <= e : (lon) => lon >= w || lon <= e; // across the antimeridian
+  const lonSpan = w <= e ? e - w : 360 - w + e;
+  const inside = live.filter((v) => v.lat >= s && v.lat <= n && lonIn(v.lon));
+  let pick = inside;
+  if (inside.length > limit) {
+    const cols = 48, rows = 30, cells = new Map();
+    inside.sort((a, b) => (b.length || 0) - (a.length || 0));
+    const cap = Math.max(1, Math.ceil(limit / (cols * rows)) + 1);
+    pick = [];
+    for (const v of inside) {
+      if (pick.length >= limit) break;
+      const cx = Math.floor((((v.lon - w + 360) % 360) / lonSpan) * cols), cy = Math.floor(((v.lat - s) / (n - s)) * rows);
+      const k = cy * cols + cx, cnt = cells.get(k) || 0;
+      if (cnt >= cap) continue;
+      cells.set(k, cnt + 1);
+      pick.push(v);
+    }
+    // Room left: the next-largest vessels anywhere in view.
+    if (pick.length < limit) {
+      const got = new Set(pick);
+      for (const v of inside) {
+        if (pick.length >= limit) break;
+        if (!got.has(v)) pick.push(v);
+      }
+    }
+  }
+  if (sel && !pick.some((v) => v.mmsi === sel) && vessels.get(sel)?.lat !== undefined) pick.push(vessels.get(sel));
+  return { total: inside.length, shown: pick.length, vessels: pick.map((v) => publicVessel(v, c)) };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
@@ -442,23 +527,51 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/status' || p === '/api/config') {
     const live = [...vessels.values()].filter((v) => v.posAt && Date.now() - v.posAt < KEEP_POSITION_MS).length;
     return sendJson(res, {
-      ok: stats.connected && Date.now() - stats.lastMsg < 120_000, ...stats, key: !!KEY, areas: AREAS,
+      ok: stats.connected && Date.now() - stats.lastMsg < 120_000, ...stats, key: !!KEY, worldwide: WORLDWIDE, areas: AREAS,
       locations: LOCATIONS, closest: CLOSEST, vessels: live, known: vessels.size,
     });
   }
+  const liveVessels = () => [...vessels.values()].filter((v) => v.lat !== undefined && Date.now() - v.posAt < KEEP_POSITION_MS);
+  if (p === '/api/vessels' && url.searchParams.has('bbox')) return sendJson(res, inView(url, center(), liveVessels()));
   if (p === '/api/vessels') {
     const c = center(), n = Math.min(500, Number(url.searchParams.get('n')) || CLOSEST);
-    const live = [...vessels.values()].filter((v) => v.lat !== undefined && Date.now() - v.posAt < KEEP_POSITION_MS);
-    const list = live.map((v) => publicVessel(v, c)).sort((a, b) => a.dist - b.dist);
+    const live = liveVessels();
+    // Distance for everyone (cheap), details only for the closest n.
+    const list = live.map((v) => [dist(c.lat, c.lon, v.lat, v.lon), v]).sort((a, b) => a[0] - b[0]).slice(0, n).map(([, v]) => publicVessel(v, c));
     const counts = {};
-    for (const v of list.slice(0, n)) counts[v.cls] = (counts[v.cls] || 0) + 1;
-    return sendJson(res, { center: c, total: live.length, counts, vessels: list.slice(0, n) });
+    for (const v of list) counts[v.cls] = (counts[v.cls] || 0) + 1;
+    return sendJson(res, { center: c, total: live.length, counts, vessels: list });
+  }
+  if (p === '/api/search') {
+    const q = (url.searchParams.get('q') || '').trim().toUpperCase();
+    if (q.length < 2) return sendJson(res, []);
+    const c = center(), digits = /^\d+$/.test(q);
+    const hits = [];
+    for (const v of vessels.values()) {
+      if (v.lat === undefined) continue;
+      const name = (v.name || '').toUpperCase();
+      const score = digits
+        ? (String(v.mmsi).startsWith(q) || String(v.imo || '').startsWith(q) ? 1 : 0)
+        : name === q ? 3 : name.startsWith(q) ? 2 : name.includes(q) || (v.callsign || '').toUpperCase() === q ? 1 : 0;
+      if (score) hits.push([score, v.posAt || 0, v]);
+    }
+    hits.sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+    return sendJson(res, hits.slice(0, 20).map(([, , v]) => publicVessel(v, c)));
   }
   const m = /^\/api\/vessel\/(\d{9})$/.exec(p);
   if (m) {
     const v = vessels.get(Number(m[1]));
     if (!v) return sendJson(res, { error: 'unknown vessel' }, 404);
     return sendJson(res, { ...publicVessel(v, center()), track: v.track.map(([t, lat, lon, sog]) => ({ t, lat, lon, sog })) });
+  }
+  if (p === '/api/locations' && req.method === 'GET') return sendJson(res, LOCATIONS);
+  if (p === '/api/locations' && req.method === 'POST') {
+    try {
+      const b = await body(req);
+      return sendJson(res, editLocations(b.op || 'add', b));
+    } catch (e) {
+      return sendJson(res, { error: e.message }, 400);
+    }
   }
   if (p === '/api/settings' && req.method === 'GET') return sendJson(res, { ...settings, webhook: !!HA_WEBHOOK });
   if (p === '/api/settings' && (req.method === 'PUT' || req.method === 'POST')) {
@@ -479,7 +592,13 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => log(`ais-monitor on :${PORT}, ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
 connect();
-setInterval(save, 120_000);
+setInterval(save, WORLDWIDE ? 300_000 : 120_000);
+// Message rate over the last minute, for the status.
+let lastCount = 0;
+setInterval(() => {
+  stats.rate = Math.round(((stats.messages - lastCount) / 60) * 10) / 10;
+  lastCount = stats.messages;
+}, 60_000);
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     save();

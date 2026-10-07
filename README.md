@@ -4,10 +4,13 @@
 
 The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (aircraft), in the same style. Two pieces:
 
-- **`ships-card`**: a Lovelace card with three tabs, each showing the closest vessels (50 by default) to a location you
-  pick from a list in the header:
-  - **Map**: vessels as hulls pointing along their course when moving, dots when moored or at anchor, coloured by
-    class, with range rings around the location and a class filter. Tap one for a popup and its last 2 hours of track.
+- **`ships-card`**: a Lovelace card. The header has a **location list** (the list is measured from it; *Manage
+  locations…* adds places by name search or the map centre, removes them and picks the default) and a **vessel search**
+  (name, MMSI, IMO or callsign; flies the map to it). Tabs:
+  - **Map**: every vessel in view as you pan and zoom (with `WORLDWIDE=true`, anywhere aisstream covers; thinned
+    to the largest 1,500 when zoomed far out), as hulls pointing along their course when moving and dots when moored or
+    at anchor, coloured by class, with range rings around the location and a class filter. Tap one for a popup and its
+    recent track.
   - **Vessels**: a sortable list with flag, class, type, status, speed, course, distance, destination, length and
     last seen. Filter chips by class; 📍 jumps to the vessel on the map.
   - **Vessel**: flag and country, name, class, type, size, draught, MMSI / IMO / callsign, speed, course and heading,
@@ -36,6 +39,10 @@ From the AIS ship type each vessel broadcasts, plus its name:
 
 Flags come from the MMSI's country digits (316 Canada, 338/366–369 USA, 232–235 UK, 636 Liberia, 538 Marshall Islands,
 351–357 Panama…).
+
+**Coverage:** aisstream is built from shore-based receivers, so busy coasts (Europe, North America, parts of Asia) are
+well covered out to roughly 40–60 nm, and the open ocean mostly isn't. Apps that show ships mid-ocean add paid
+satellite AIS.
 
 **Patience:** ships send their name and type only every 6 minutes, and aisstream is built from volunteer receivers,
 so a newly seen vessel shows as "Waiting for details" for a while. The monitor remembers names and types for 30
@@ -94,9 +101,10 @@ curl http://localhost:7110/api/status
 | Variable | Default | |
 |---|---|---|
 | `AISSTREAM_KEY` | none | Your aisstream.io key |
-| `LOCATIONS` | none | `Name:lat,lon;Name:lat,lon`. The places the card can list the closest vessels to; the first is the default |
+| `LOCATIONS` | none | `Name:lat,lon;Name:lat,lon`. The starting places the card can list the closest vessels to; the first is the default. Once edited in the card they're kept in `data/locations.json` |
 | `LOCATION_RADIUS_NM` | `40` | AIS is received for a box this size around each location |
 | `AREA_LAT`, `AREA_LON`, `AREA_RADIUS_NM` | none, `100` | Optional wider area to receive as well |
+| `WORLDWIDE` | `false` | `true`: receive every vessel aisstream has (about 100–150 messages/s, ~6.5 GB/day download, ~100–200 MB RAM). Otherwise only the boxes around your locations |
 | `CLOSEST` | `50` | Default number of closest vessels |
 | `HA_WEBHOOK` | none | HA webhook URL for phone alerts. Empty: alerts are only logged |
 | `ALERT_RADIUS_NM` | `6` | Starting harbour circle for alerts; then set in the card |
@@ -120,6 +128,9 @@ centred (inside the areas the monitor receives).
 |---|---|
 | `GET /api/status` | connection, message count, areas, locations, vessel counts |
 | `GET /api/vessels?lat=&lon=&n=` | the `n` closest vessels to a point, with class, flag, distance and bearing |
+| `GET /api/vessels?bbox=s,w,n,e&limit=` | vessels in a map view, thinned evenly when there are more than `limit` |
+| `GET /api/search?q=` | vessels by name, MMSI, IMO or callsign |
+| `GET / POST /api/locations` | the locations; POST `{op: "add" \| "remove" \| "default", name, lat, lon}` |
 | `GET /api/vessel/<mmsi>?lat=&lon=` | one vessel, with its last 2 hours of track |
 | `GET / PUT /api/settings` | alert settings |
 | `GET /api/alerts` | last 100 alerts |

@@ -210,12 +210,48 @@ class ShipsCard extends HTMLElement {
       this._vessels = d.vessels;
       this._total = d.total;
       this._err = null;
-      this._byMmsi = new Map(d.vessels.map((v) => [v.mmsi, v]));
+      this._index();
       if (this._sel) await this._loadSel();
+      this._loadView(true);
     } catch (e) {
       this._err = e.message || String(e);
     }
     this._renderAll();
+  }
+
+  // Everything we have: the map view's vessels and the closest list (the list wins, it has the same fields).
+  _index() {
+    this._byMmsi = new Map([...(this._viewVessels || []), ...this._vessels].map((v) => [v.mmsi, v]));
+  }
+
+  // Vessels in the current map view (the monitor thins them when zoomed far out).
+  _bbox() {
+    const v = this._view || this._defaultView(), [w, h] = this._size();
+    if (!v || !w) return null;
+    const S = 256 * 2 ** v.z, wrap = (lon) => ((((lon + 180) % 360) + 360) % 360) - 180;
+    const s = uny(Math.min(1, v.y + h / 2 / S)), n = uny(Math.max(0, v.y - h / 2 / S));
+    if (w / S >= 1) return [s, -180, n, 180];
+    return [s, wrap(unx(v.x - w / 2 / S)), n, wrap(unx(v.x + w / 2 / S))];
+  }
+  async _loadView(force) {
+    const b = this._bbox();
+    if (!b) return;
+    const key = b.map((x) => x.toFixed(3)).join(",");
+    if (!force && key === this._viewKey) return;
+    this._viewKey = key;
+    const c = this._center();
+    try {
+      const d = await this._mon(`/api/vessels?bbox=${key}&limit=1500${this._sel ? `&sel=${this._sel}` : ""}${c ? `&lat=${c.lat}&lon=${c.lon}` : ""}`);
+      if (key !== this._viewKey) return; // moved on meanwhile
+      this._viewVessels = d.vessels;
+      this._viewTotal = d.total;
+      this._index();
+      this._renderMap();
+    } catch (e) {}
+  }
+  _scheduleView() {
+    clearTimeout(this._viewTimer);
+    this._viewTimer = setTimeout(() => this._loadView(), 350);
   }
 
   async _loadSel() {
@@ -246,6 +282,25 @@ class ShipsCard extends HTMLElement {
         .meta { margin-left: auto; font-size: .78em; color: var(--secondary-text-color); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         select.loc { font: inherit; font-size: .85em; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--divider-color);
                      background: var(--card-background-color, #fff); color: var(--primary-text-color); cursor: pointer; }
+        .dd-wrap { position: relative; }
+        input.q { font: inherit; font-size: .85em; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--divider-color);
+                  background: var(--card-background-color, #fff); color: var(--primary-text-color); width: 180px; }
+        .dd { position: absolute; top: calc(100% + 4px); left: 0; min-width: 320px; max-width: min(460px, 90vw); max-height: 320px; overflow: auto; z-index: 5;
+              background: var(--card-background-color, #fff); border-radius: 10px; box-shadow: var(--ha-card-box-shadow, 0 2px 10px rgba(0,0,0,.3)); }
+        .dd:empty { display: none; }
+        .dd button { display: block; width: 100%; text-align: left; border: none; background: transparent; color: var(--primary-text-color); font: inherit;
+                     font-size: .85em; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--divider-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dd button:hover { background: color-mix(in srgb, var(--primary-color) 12%, transparent); }
+        .locpanel { display: none; margin-top: 12px; background: var(--secondary-background-color); border-radius: 12px; padding: 10px 12px; }
+        .locpanel.on { display: block; }
+        .lph { display: flex; align-items: center; gap: 10px; font-size: .9em; margin-bottom: 6px; }
+        .lph .muted { font-size: .85em; } .lph ha-icon { margin-left: auto; cursor: pointer; color: var(--secondary-text-color); --mdc-icon-size: 18px; }
+        .lplist { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 16px; }
+        .lprow { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--divider-color); font-size: .88em; }
+        .lprow ha-icon { --mdc-icon-size: 18px; } .lprow .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lprow .btn { padding: 3px 6px; }
+        .lpadd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        .lpadd .grow { flex: 1; min-width: 240px; }
         .tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--secondary-background-color); margin: 12px 0; width: fit-content; max-width: 100%; overflow-x: auto; }
         .tabs button { border: none; background: transparent; color: var(--secondary-text-color); font: inherit; font-size: .88em; padding: 6px 14px;
                        border-radius: 999px; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -367,8 +422,10 @@ class ShipsCard extends HTMLElement {
           <div class="title"><ha-icon icon="mdi:ferry"></ha-icon><span>${esc(c.title)}</span></div>
           <span class="pill dim" id="state">Connecting…</span>
           <select class="loc" id="loc" title="Closest vessels to"></select>
+          <div class="dd-wrap"><input class="q" id="vq" placeholder="Find a vessel…" autocomplete="off"><div class="dd" id="vres"></div></div>
           <span class="meta" id="meta"></span>
         </div>
+        <div class="locpanel" id="locpanel"></div>
         <div class="tabs" id="tabs">${TABS.map(([k, l, i]) => `<button data-t="${k}"><ha-icon icon="${i}"></ha-icon><span>${l}</span><span class="n" id="n-${k}"></span></button>`).join("")}</div>
         <div class="pane" id="p-map">
           <div class="map" id="map">
@@ -383,7 +440,7 @@ class ShipsCard extends HTMLElement {
             </div>
             <div class="pop" id="pop"></div>
             <div class="fpanel" id="fpanel"></div>
-            <div class="legend">${CLASSES.slice(0, 6).map(([, l, , col]) => `<span><i style="background:${col}"></i>${l}</span>`).join("")}<span>● stopped</span><span>▲ moving</span></div>
+            <div class="legend">${CLASSES.slice(0, 6).map(([, l, , col]) => `<span><i style="background:${col}"></i>${l}</span>`).join("")}<span>● stopped</span><span>▲ moving</span><span id="inview"></span></div>
             <div class="attr">AIS: aisstream.io · Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></div>
           </div>
         </div>
@@ -402,6 +459,12 @@ class ShipsCard extends HTMLElement {
     });
     this.$("loc").addEventListener("change", (e) => {
       let v = e.target.value;
+      if (v === "__manage") {
+        this._locOpen = true;
+        this._renderLocPanel();
+        this._renderHead(true);
+        return;
+      }
       if (v === "__map") {
         const vw = this._view || this._defaultView();
         v = vw ? `pt:${uny(vw.y).toFixed(4)},${unx(vw.x).toFixed(4)}` : "";
@@ -410,6 +473,35 @@ class ShipsCard extends HTMLElement {
       this._save("loc", v);
       this._view = null;
       this._poll();
+    });
+    // Vessel search.
+    this.$("vq").addEventListener("input", (e) => {
+      clearTimeout(this._vqTimer);
+      const q = e.target.value.trim();
+      this._vqTimer = setTimeout(async () => {
+        if (q.length < 2) return (this.$("vres").innerHTML = "");
+        const c = this._center();
+        try {
+          const r = await this._mon(`/api/search?q=${encodeURIComponent(q)}${c ? `&lat=${c.lat}&lon=${c.lon}` : ""}`);
+          this._vqRes = r;
+          this.$("vres").innerHTML = r.map((v, i) => `<button data-i="${i}"><span class="fl">${flagEmoji(v.flag)}</span><b>${esc(v.name || v.mmsi)}</b> <span class="muted">${esc([v.sub && v.sub !== CLASS[v.cls]?.l ? v.sub : v.typeLabel, country(v.flag), v.dist != null ? `${num(v.dist, 0)} nm away` : ""].filter(Boolean).join(" · "))}</span></button>`).join("") || `<div class="muted" style="padding:8px">No vessel found</div>`;
+        } catch (err) {}
+      }, 300);
+    });
+    this.$("vres").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-i]");
+      if (!b) return;
+      const v = this._vqRes[Number(b.dataset.i)];
+      this.$("vres").innerHTML = "";
+      this.$("vq").value = "";
+      this._locate(v.mmsi, v);
+    });
+    this.$("locpanel").addEventListener("click", (e) => this._locClick(e));
+    this.$("locpanel").addEventListener("input", (e) => {
+      if (e.target.id !== "pq") return;
+      clearTimeout(this._pqTimer);
+      const q = e.target.value.trim();
+      this._pqTimer = setTimeout(() => this._placeSearch(q), 400);
     });
     this.$("zin").addEventListener("click", () => this._zoomBy(1));
     this.$("zout").addEventListener("click", () => this._zoomBy(-1));
@@ -508,9 +600,10 @@ class ShipsCard extends HTMLElement {
     }
   }
 
-  _locate(mmsi) {
-    const v = this._byMmsi?.get(mmsi);
-    if (!v) return;
+  _locate(mmsi, obj) {
+    const v = obj || this._byMmsi?.get(mmsi);
+    if (!v || v.lat === undefined) return;
+    if (obj && !this._byMmsi?.has(mmsi)) this._byMmsi?.set(mmsi, obj);
     this._select(mmsi);
     const z = this._view?.z || this._defaultView()?.z || 12;
     this._view = { x: mx(v.lon), y: my(v.lat), z: Math.max(z, 13) };
@@ -526,6 +619,82 @@ class ShipsCard extends HTMLElement {
     if (this._tab === "list") this._renderList();
     if (this._tab === "vessel") this._renderVessel();
     if (this._tab === "alerts") this._renderAlerts();
+  }
+
+  // ---- locations ---------------------------------------------------------------------------
+
+  _renderLocPanel() {
+    const box = this.$("locpanel");
+    box.classList.toggle("on", !!this._locOpen);
+    if (!this._locOpen) return;
+    const locs = this._status?.locations || [];
+    box.innerHTML = `
+      <div class="lph"><b>Locations</b><span class="muted">places the list can be measured from; the first is the default</span><ha-icon icon="mdi:close" data-l="close"></ha-icon></div>
+      <div class="lplist">${locs.map((l, i) => `<div class="lprow"><ha-icon icon="${i ? "mdi:map-marker-outline" : "mdi:star"}" style="color:var(--primary-color)"></ha-icon>
+          <span class="grow">${esc(l.name)} <span class="muted">${l.lat.toFixed(3)}, ${l.lon.toFixed(3)}</span></span>
+          ${i ? `<button class="btn" data-l="default" data-n="${esc(l.name)}" title="Make default"><ha-icon icon="mdi:star-outline"></ha-icon></button>` : ""}
+          <button class="btn" data-l="remove" data-n="${esc(l.name)}" title="Remove"><ha-icon icon="mdi:close"></ha-icon></button></div>`).join("")}</div>
+      <div class="lpadd">
+        <div class="dd-wrap grow"><input class="q" id="pq" placeholder="Search for a place to add (port, harbour, city…)" autocomplete="off" style="width:100%"><div class="dd" id="pres"></div></div>
+        <span class="muted">or</span>
+        <input class="q" id="pn" placeholder="Name" style="width:140px"><button class="btn" data-l="centre"><ha-icon icon="mdi:crosshairs-gps"></ha-icon>Add the map centre</button>
+      </div>
+      <div class="muted" style="font-size:.75em;margin-top:6px">${this._locErr ? `<span class="bad">${esc(this._locErr)}</span> · ` : ""}Place search by Photon (OpenStreetMap). Locations are saved in ais-monitor, so every device sees them.</div>`;
+  }
+
+  async _placeSearch(q) {
+    const box = this.$("pres");
+    if (!box) return;
+    if (q.length < 3) return (box.innerHTML = "");
+    try {
+      const d = await getJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8`, {}, 8000);
+      this._pRes = (d.features || []).map((f) => {
+        const p = f.properties || {};
+        return { name: p.name || q, where: [p.city, p.state, p.country].filter((x) => x && x !== p.name).join(", "), kind: p.osm_value || "", lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+      });
+      box.innerHTML = this._pRes.map((r, i) => `<button data-l="place" data-i="${i}"><b>${esc(r.name)}</b> <span class="muted">${esc([r.where, r.kind.replace(/_/g, " ")].filter(Boolean).join(" · "))}</span></button>`).join("") || `<div class="muted" style="padding:8px">Nothing found</div>`;
+    } catch (e) {
+      box.innerHTML = `<div class="muted" style="padding:8px">Place search unavailable</div>`;
+    }
+  }
+
+  async _locEdit(body, select) {
+    try {
+      const r = await this._mon("/api/locations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (r.error) throw new Error(r.error);
+      this._locErr = null;
+      if (this._status) this._status.locations = r;
+      if (select) {
+        this._loc = select;
+        this._save("loc", select);
+        this._view = null;
+      }
+      await this._loadStatus();
+      this._poll();
+    } catch (e) {
+      this._locErr = e.message || String(e);
+    }
+    this._renderLocPanel();
+    this._renderHead();
+  }
+
+  _locClick(e) {
+    const b = e.target.closest("[data-l]");
+    if (!b) return;
+    const act = b.dataset.l;
+    if (act === "close") {
+      this._locOpen = false;
+      this._renderLocPanel();
+    } else if (act === "remove") this._locEdit({ op: "remove", name: b.dataset.n });
+    else if (act === "default") this._locEdit({ op: "default", name: b.dataset.n });
+    else if (act === "place") {
+      const r = this._pRes[Number(b.dataset.i)];
+      this._locEdit({ op: "add", name: r.name, lat: r.lat, lon: r.lon }, r.name);
+    } else if (act === "centre") {
+      const v = this._view || this._defaultView(), name = this.$("pn").value.trim();
+      if (!name) return this.$("pn").focus();
+      if (v) this._locEdit({ op: "add", name, lat: uny(v.y), lon: unx(v.x) }, name);
+    }
   }
 
   // ---- alerts --------------------------------------------------------------------------------
@@ -608,13 +777,14 @@ class ShipsCard extends HTMLElement {
     const sel = this.$("loc"), locs = s?.locations || [], cur = this._center();
     const opts = locs.map((l) => `<option value="${esc(l.name)}">${esc(l.name)}</option>`).join("") +
       (this._loc.startsWith("pt:") ? `<option value="${esc(this._loc)}">Map centre (${esc(this._loc.slice(3))})</option>` : "") +
-      `<option value="__map">Centre of the map…</option>`;
+      `<option value="__map">Centre of the map…</option><option value="__manage">Manage locations…</option>`;
     if (sel.dataset.o !== opts) {
       sel.innerHTML = opts;
       sel.dataset.o = opts;
     }
     sel.value = this._loc.startsWith("pt:") ? this._loc : cur?.name || "";
-    this.$("meta").innerHTML = s ? `<span>${num(s.vessels)} vessels in the area</span><span>${s.ok ? "● live" : "○"} aisstream</span>` : "";
+    this.$("meta").dataset.ww = s?.worldwide ? "1" : "";
+    this.$("meta").innerHTML = s ? `<span>${num(s.vessels)} vessels ${s.worldwide ? "worldwide" : "in the area"}</span><span>${s.ok ? "● live" : "○"} aisstream</span>` : "";
     this.$("n-list").textContent = this._vessels?.length || "";
     const v = this._sel && (this._byMmsi?.get(this._sel) || this._selData);
     this.$("n-vessel").textContent = v ? v.name || v.mmsi : "";
@@ -811,7 +981,9 @@ class ShipsCard extends HTMLElement {
       }).join("")}"/>`;
     }
     const shown = (x) => !this._fCls.size || this._fCls.has(x.cls) || x.mmsi === this._sel;
-    const list = this._vessels.filter((x) => x.lat !== undefined && shown(x)).sort((a, b) => (a.mmsi === this._sel) - (b.mmsi === this._sel));
+    const all = [...(this._byMmsi || new Map()).values()];
+    const list = all.filter((x) => x.lat !== undefined && shown(x)).sort((a, b) => (a.mmsi === this._sel) - (b.mmsi === this._sel));
+    const far = v.z < 7; // zoomed far out: plain dots, no labels
     this._hits = [];
     for (const x of list) {
       const p = P(x.lat, x.lon);
@@ -825,19 +997,23 @@ class ShipsCard extends HTMLElement {
       if (isSel) g += `<circle class="selring" r="${14 * sc}"/>`;
       if (this._flash?.mmsi === x.mmsi && Date.now() < this._flash.until)
         g += `<circle r="16" fill="none" stroke="var(--primary-color)" stroke-width="3"><animate attributeName="r" values="12;42" dur="1.1s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;0" dur="1.1s" repeatCount="indefinite"/></circle>`;
-      g += stopped
+      g += far && !isSel
+        ? `<circle r="2.6" fill="${col}"/>`
+        : stopped
         ? `<circle r="${(4.5 * sc).toFixed(1)}" fill="${col}" stroke="${this._dark ? "#000" : "#222"}" stroke-width="1"/>`
         : `<path d="${HULL}" transform="rotate(${Math.round(rot)}) scale(${sc.toFixed(2)})" fill="${col}" stroke="${this._dark ? "#000" : "#222"}" stroke-width=".9"/>`;
       // Stopped vessels crowd a harbour: label them only when zoomed in (or selected).
-      if (isSel || (this._labels && (!stopped || v.z >= 13))) {
+      if (isSel || (this._labels && (stopped ? v.z >= 13 : v.z >= 9))) {
         g += `<text class="lbl" x="${10 * sc + 3}" y="-1">${esc(x.name || x.mmsi)}</text>`;
         if (!stopped || isSel) g += `<text class="lbl2" x="${10 * sc + 3}" y="11">${x.sog != null ? `${num(x.sog, 1)} kn` : ""}${x.dest && !stopped ? ` → ${esc(x.dest)}` : ""}</text>`;
       }
       g += `</g>`;
     }
     this.$("ov").innerHTML = g;
+    this.$("inview").textContent = this._viewTotal !== undefined ? `${num(this._viewTotal)} in view${this._viewVessels && this._viewVessels.length < this._viewTotal ? ` (${num(this._viewVessels.length)} drawn)` : ""}` : "";
     this._renderPop();
     this._renderFilter();
+    this._scheduleView();
   }
 
   _renderFilter() {
@@ -849,12 +1025,13 @@ class ShipsCard extends HTMLElement {
     panel.classList.toggle("on", !!this._fOpen);
     if (!this._fOpen) return;
     const cc = {};
-    for (const x of this._vessels) cc[x.cls] = (cc[x.cls] || 0) + 1;
-    const shown = this._vessels.filter((x) => !on || this._fCls.has(x.cls)).length;
+    const all = [...(this._byMmsi || new Map()).values()];
+    for (const x of all) cc[x.cls] = (cc[x.cls] || 0) + 1;
+    const shown = all.filter((x) => !on || this._fCls.has(x.cls)).length;
     const html = `<h5>Show on the map${on ? `<a data-f="reset">Show all</a>` : ""}<a data-f="close" style="${on ? "margin-left:10px" : ""}">Close</a></h5>
       <div class="chips">${CLASSES.filter(([k]) => cc[k] || this._fCls.has(k)).map(([k, l, i, col]) =>
         `<button data-f="cls" data-v="${k}" class="${this._fCls.has(k) ? "on" : ""}" style="--c:${col}"><ha-icon icon="${i}"></ha-icon>${l} <span class="n">${cc[k] || 0}</span></button>`).join("")}</div>
-      <div class="fnote">${on ? `Showing ${shown} of ${this._vessels.length}. ` : ""}The selected vessel always stays visible.</div>`;
+      <div class="fnote">${on ? `Showing ${shown} of ${all.length}. ` : ""}The selected vessel always stays visible.</div>`;
     if (html !== this._fHtml) panel.innerHTML = this._fHtml = html;
   }
 
