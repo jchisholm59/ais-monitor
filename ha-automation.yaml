@@ -18,11 +18,23 @@ actions:
   - variables:
       payload: >-
         {% set j = trigger.json %}{% set icons = {'warship': 'mdi:shield-star', 'cruise': 'mdi:ferry',
-        'coastguard': 'mdi:lifebuoy'} %}{% set d = {'tag': j.tag, 'sticky': 'true', 'channel': 'Ship alerts',
-        'importance': 'high', 'priority': 'high', 'ttl': 0, 'clickAction': '/lovelace/ships',
-        'notification_icon': icons.get(j.kind, 'mdi:ferry')} %}{% if j.image %}{% set d = dict(d, image=j.image) %}{% endif %}{{ d }}
+        'coastguard': 'mdi:lifebuoy'} %}{% set d = {'tag': j.tag, 'sticky': 'true', 'persistent': 'true',
+        'channel': 'Ship alerts', 'importance': 'high', 'priority': 'high', 'ttl': 0,
+        'clickAction': '/lovelace/ships', 'notification_icon': icons.get(j.kind, 'mdi:bell'),
+        'actions': [{'action': 'URI', 'title': 'Open', 'uri': '/lovelace/ships'}, {'action': 'DISMISS_' ~ j.tag, 'title': 'Dismiss'}]} %}
+        {% if j.image %}{% set d = dict(d, image=j.image) %}{% endif %}{{ d }}
+      watch: >-
+        {% set j = trigger.json %}{% set d = {'tag': j.tag} %}{% if j.image %}{% set d = dict(d, image=j.image) %}{% endif %}{{ d }}
+  # Persistent on the phone: stays until its Dismiss button is tapped (see alert-dismiss.yaml).
   - action: notify.mobile_app_YOUR_PHONE
     data:
       title: "{{ trigger.json.title }}"
       message: "{{ trigger.json.message }}"
       data: "{{ payload }}"
+  # Android doesn't pass persistent notifications on to a Wear OS watch, so send the watch its own (remove if none).
+  - action: notify.mobile_app_YOUR_WATCH
+    continue_on_error: true
+    data:
+      title: "{{ trigger.json.title }}"
+      message: "{{ trigger.json.message }}"
+      data: "{{ watch }}"

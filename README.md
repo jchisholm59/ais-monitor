@@ -72,8 +72,10 @@ vessel doesn't alert again for 12 h. Example:
 > HMCS HALIFAX · Royal Canadian Navy · Canada
 > 12.0 kn, 4.6 nm from Halifax Harbour
 
-Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)), which sends sticky
-notifications that open the Ships view when tapped. Turn types on or off, set the circle and pick harbours in the
+Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)), which sends
+**persistent** notifications: they stay until you tap **Dismiss** (handled by [`alert-dismiss.yaml`](alert-dismiss.yaml));
+**Open** goes to the Ships view. A plain copy goes to a Wear OS watch, since Android doesn't pass persistent
+notifications on to the watch. Turn types on or off, set the circle and pick harbours in the
 card's Alerts tab; there's a test button and the recent alerts.
 
 ## Requirements
