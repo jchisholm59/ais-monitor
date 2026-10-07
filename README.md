@@ -14,7 +14,9 @@ The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (ai
 |---|---|
 | ![Satellite view of Halifax Harbour with the SS Mont-Blanc (Halifax Explosion) marker and its story open](docs/satellite.png) | ![Sable Island, the Graveyard of the Atlantic, on satellite imagery with its wrecks and the story open](docs/sable.png) |
 
-![Wrecks: major shipwrecks and naval losses across the North Atlantic, with the Titanic's story open and the filter's Wrecks section](docs/wrecks.png)
+| North Atlantic wrecks | Halifax approaches: HMCS Esquimalt |
+|---|---|
+| ![Wrecks: major shipwrecks and naval losses across the North Atlantic, with the Titanic's story open and the filter's Wrecks section](docs/wrecks.png) | ![The approaches to Halifax on satellite imagery with HMCS Esquimalt's story open, near the SS Atlantic and the Halifax Explosion](docs/esquimalt.png) |
 
 | Vessels | Locations | Alerts |
 |---|---|---|
