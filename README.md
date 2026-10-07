@@ -10,6 +10,8 @@ The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (ai
 |---|---|
 | ![Map zoomed out over Northern Europe, every vessel in view](docs/world.png) | ![Vessel tab: a cruise ship's flag, size, draught, destination and ETA](docs/vessel.png) |
 
+![Satellite view: Halifax Harbour with ferries, tugs and pilot boats on the imagery](docs/satellite.png)
+
 ![Wrecks: major shipwrecks and naval losses across the North Atlantic, with the Titanic's story open and the filter's Wrecks section](docs/wrecks.png)
 
 | Vessels | Locations | Alerts |
