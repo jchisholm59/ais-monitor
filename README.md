@@ -99,9 +99,13 @@ curl http://localhost:7110/api/status
 ```
 
 ### 2. The card
-1. Copy `dist/ships-card.js` to `/config/www/` on Home Assistant.
-2. Settings → Dashboards → ⋮ → Resources → Add `/local/ships-card.js` as a *JavaScript module*.
-3. Add a view (a *Panel* view gives the map the whole screen) with:
+**With HACS:** HACS → ⋮ → Custom repositories → add `https://github.com/jchisholm59/ais-monitor`, type *Dashboard*,
+then download **Ships Card (AIS)**.
+
+**By hand:** copy `dist/ships-card.js` to `/config/www/` and add `/local/ships-card.js` as a *JavaScript module*
+resource (Settings → Dashboards → ⋮ → Resources).
+
+**Then** add a view (a *Panel* view gives the map the whole screen) with:
    ```yaml
    type: custom:ships-card
    monitor:
