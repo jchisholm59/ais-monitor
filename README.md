@@ -2,7 +2,19 @@
 
 **A Home Assistant card for marine traffic: the vessels closest to a place you choose, live from AIS.**
 
-The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (aircraft), in the same style. Two pieces:
+The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (aircraft), in the same style.
+
+![Map: Halifax Harbour with a cruise ship selected, vessels coloured by class](docs/map.png)
+
+| Worldwide | Vessel details |
+|---|---|
+| ![Map zoomed out over Northern Europe, every vessel in view](docs/world.png) | ![Vessel tab: a cruise ship's flag, size, draught, destination and ETA](docs/vessel.png) |
+
+| Vessels | Locations | Alerts |
+|---|---|---|
+| ![Vessels tab: the 50 closest, with flags, classes and filter chips](docs/vessels.png) | ![Manage locations: a place search adding a new location](docs/locations.png) | ![Alerts tab: warships and cruise ships entering a harbour](docs/alerts.png) |
+
+Two pieces:
 
 - **`ships-card`**: a Lovelace card. The header has a **location list** (the list is measured from it; *Manage
   locations…* adds places by name search or the map centre, removes them and picks the default) and a **vessel search**

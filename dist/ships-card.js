@@ -748,7 +748,7 @@ class ShipsCard extends HTMLElement {
         </div>
         <div class="panel"><h4>Harbours to watch</h4>
           <div class="chips">${locs.map((l) => `<button data-act="harbour" data-h="${esc(l.name)}" class="${s.harbours.includes(l.name) ? "on" : ""}">${esc(l.name)}</button>`).join("")}</div>
-          <div class="fnote">Tap to turn on or off. The locations come from LOCATIONS in ais-monitor's .env.</div>
+          <div class="fnote">Tap to turn on or off. Add or remove locations with <i>Manage locations…</i> in the location list.</div>
         </div>
       </div>
       <div class="panel"><h4>Recent alerts</h4>
@@ -1101,7 +1101,7 @@ class ShipsCard extends HTMLElement {
         <td class="r">${v.length ? `${v.length} m` : ""}</td>
         <td class="r">${ago(v.posAge)}</td></tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">No vessels yet</td></tr>`;
     const c = this._center();
-    this.$("lfoot").textContent = `The ${vs.length} closest vessels to ${c?.name || "the location"} (of ${this._total ?? "?"} in the area). Speeds in knots, distances in nm. Tap a row for details, or 📍 for the map. Vessel types fill in as ships send them (every ~6 min).`;
+    this.$("lfoot").textContent = `The ${vs.length} closest vessels to ${c?.name || "the location"} (of ${num(this._total)} ${this._status?.worldwide ? "worldwide" : "in the area"}). Speeds in knots, distances in nm. Tap a row for details, or 📍 for the map. Vessel types fill in as ships send them (every ~6 min).`;
   }
 
   // ---- vessel --------------------------------------------------------------------------------
