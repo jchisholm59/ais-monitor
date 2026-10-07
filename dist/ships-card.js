@@ -519,6 +519,7 @@ class ShipsCard extends HTMLElement {
     this.$("sat").addEventListener("click", () => {
       this._sat = !this._sat;
       this._save("sat", this._sat ? 1 : 0);
+      if (this._view) this._view.z = Math.min(this._view.z, this._maxZ());
       this._renderMap();
     });
     this.$("flt").addEventListener("click", () => {
@@ -824,11 +825,16 @@ class ShipsCard extends HTMLElement {
     const S = 256 * 2 ** v.z;
     return [(mx(lon) - v.x) * S + w / 2, (my(lat) - v.y) * S + h / 2];
   }
+  // Closest zoom: the gray canvas has tiles to 16 (shown up to 17, scaled); the imagery goes to 19.
+  _maxZ() {
+    return this._sat ? 19 : 17;
+  }
+
   _zoomBy(dz, px, py) {
     const [w, h] = this._size();
     const v = this._view || this._defaultView();
     if (!v) return;
-    const z = Math.max(3, Math.min(17, v.z + dz));
+    const z = Math.max(3, Math.min(this._maxZ(), v.z + dz));
     if (Math.abs(z - v.z) < 1e-3) return;
     if (px === undefined) [px, py] = [w / 2, h / 2];
     const S = 256 * 2 ** v.z, S2 = 256 * 2 ** z;
@@ -917,7 +923,7 @@ class ShipsCard extends HTMLElement {
   _renderTiles(v, w, h) {
     const box = this.$("tiles");
     if (!this._tiles) this._tiles = new Map();
-    const tz = Math.max(0, Math.min(16, Math.round(v.z))), n = 2 ** tz;
+    const tz = Math.max(0, Math.min(this._sat ? 19 : 16, Math.round(v.z))), n = 2 ** tz;
     const S = 256 * 2 ** v.z, T = S / n;
     const x0 = Math.floor((v.x * S - w / 2) / T), x1 = Math.floor((v.x * S + w / 2) / T);
     const y0 = Math.max(0, Math.floor((v.y * S - h / 2) / T)), y1 = Math.min(n - 1, Math.floor((v.y * S + h / 2) / T));
