@@ -96,8 +96,10 @@ const WRECKS = [
       "the wreck was found, remarkably intact, 3,000 m down in 2022." },
   // Naval losses
   { kind: "naval", name: "HMCS Esquimalt", lat: 44.47, lon: -63.43, date: "16 April 1945", lost: "44", approx: true,
-    note: "The minesweeper was torpedoed by U-190 off Chebucto Head, at the approaches to Halifax: " +
-      "the last Canadian warship lost in the Second World War." },
+    note: "The minesweeper was torpedoed by U-190 off Chebucto Head, at the approaches to Halifax, and sank in about four minutes, " +
+      "too fast to send a distress call: the last Canadian warship lost in the Second World War. " +
+      "Her survivors clung to Carley floats for hours in the icy April water before HMCS Sarnia found them; " +
+      "many of the 44 who died were lost to the cold on the floats. 27 survived. U-190 surrendered to the RCN less than a month later." },
   { kind: "naval", name: "USS Thresher", lat: 41.77, lon: -64.95, date: "10 April 1963", lost: "129", approx: true,
     note: "The nuclear submarine was lost during deep-diving trials 220 nm east of Cape Cod: the worst submarine disaster in history." },
   { kind: "naval", name: "HMS Hood", lat: 63.333, lon: -31.833, date: "24 May 1941", lost: "1,415",
