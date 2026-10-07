@@ -10,7 +10,21 @@ const DEFAULTS = {
   rings: [1, 2, 5, 10, 25], // nm around the chosen location
   refresh: 10, // seconds
   map_height: null,
+  markers: true, // landmarks on the map: true (built-in), false, or a list of {name, lat, lon, sub, note} to add
 };
+
+// Built-in landmarks, drawn on the map; tap one for its note.
+const LANDMARKS = [
+  {
+    name: "RMS Titanic",
+    lat: 41.7256,
+    lon: -49.9469,
+    sub: "Wreck site · sank 15 April 1912",
+    note: "Struck an iceberg at 11:40 p.m. on 14 April 1912 and sank at 2:20 a.m.; about 1,500 of the 2,224 aboard were lost. " +
+      "The wreck lies 3,800 m (12,500 ft) down in two main pieces and was found in 1985. " +
+      "Ships sent from Halifax recovered most of the victims found; 150 are buried in Halifax, 121 of them in Fairview Lawn Cemetery.",
+  },
+];
 
 const NM = 3440.065;
 const RAD = Math.PI / 180;
@@ -64,6 +78,16 @@ function destPoint(lat, lon, brg, d) {
   const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ));
   const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
   return [φ2 / RAD, λ2 / RAD];
+}
+function distNm(la1, lo1, la2, lo2) {
+  const dl = (la2 - la1) * RAD, dn = (lo2 - lo1) * RAD;
+  const h = Math.sin(dl / 2) ** 2 + Math.cos(la1 * RAD) * Math.cos(la2 * RAD) * Math.sin(dn / 2) ** 2;
+  return 2 * NM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function bearing(la1, lo1, la2, lo2) {
+  const y = Math.sin((lo2 - lo1) * RAD) * Math.cos(la2 * RAD);
+  const x = Math.cos(la1 * RAD) * Math.sin(la2 * RAD) - Math.sin(la1 * RAD) * Math.cos(la2 * RAD) * Math.cos((lo2 - lo1) * RAD);
+  return ((Math.atan2(y, x) / RAD) + 360) % 360;
 }
 const mx = (lon) => (lon + 180) / 360;
 const my = (lat) => {
@@ -347,6 +371,7 @@ class ShipsCard extends HTMLElement {
         .pop.on, .fpanel.on { display: block; }
         .pop .nm { font-size: 1.1em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .pop .x { margin-left: auto; cursor: pointer; color: var(--secondary-text-color); --mdc-icon-size: 18px; }
+        .pop .lmnote { font-size: .85em; line-height: 1.4; margin: 0 0 8px; }
         .pop .sub { font-size: .82em; color: var(--secondary-text-color); margin: 2px 0 6px; }
         .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 8px; font-size: .78em; }
         .kv b { display: block; font-size: 1.12em; font-variant-numeric: tabular-nums; }
@@ -599,6 +624,7 @@ class ShipsCard extends HTMLElement {
   }
 
   async _select(mmsi) {
+    this._lm = null;
     this._sel = mmsi || null;
     this._selData = mmsi ? this._byMmsi?.get(mmsi) || null : null;
     this._renderAll();
@@ -798,6 +824,11 @@ class ShipsCard extends HTMLElement {
     this.$("n-vessel").textContent = v ? v.name || v.mmsi : "";
   }
 
+  _landmarks() {
+    const m = this._config.markers;
+    return m === false ? [] : [...LANDMARKS, ...(Array.isArray(m) ? m.filter((x) => isFinite(x?.lat) && isFinite(x?.lon)) : [])];
+  }
+
   _tag(v) {
     const c = CLASS[v.cls] || CLASS.unk;
     const label = v.cls === "mil" && v.navy ? v.navy : c.l;
@@ -900,7 +931,11 @@ class ShipsCard extends HTMLElement {
           const d = Math.hypot(px - x, py - y);
           if (d < bd) (bd = d), (best = m);
         }
-        this._select(best);
+        if (typeof best === "string") {
+          this._select(null);
+          this._lm = Number(best.slice(3));
+          this._renderPop();
+        } else this._select(best);
       }
     };
     el.addEventListener("pointerup", up);
@@ -998,11 +1033,22 @@ class ShipsCard extends HTMLElement {
         return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
       }).join("")}"/>`;
     }
+    this._hits = [];
+    this._landmarks().forEach((m, i) => {
+      const p = P(m.lat, m.lon);
+      if (!inView(p)) return;
+      this._hits.push(["lm:" + i, p[0], p[1]]);
+      const on = this._lm === i;
+      g += `<g class="lm" transform="translate(${p[0].toFixed(1)},${p[1].toFixed(1)})">`;
+      if (on) g += `<circle class="selring" r="13"/>`;
+      g += `<path d="M0,-7L7,0L0,7L-7,0Z" fill="#8e1b1b" stroke="#fff" stroke-width="1.5"/><circle r="1.8" fill="#fff"/>`;
+      if (this._labels || on) g += `<text class="lbl" x="11" y="-1">${esc(m.name)}</text><text class="lbl2" x="11" y="11">${esc(m.year || (m.sub || "").replace(/^.*?(\d{4}).*$/, "$1"))}</text>`;
+      g += `</g>`;
+    });
     const shown = (x) => !this._fCls.size || this._fCls.has(x.cls) || x.mmsi === this._sel;
     const all = [...(this._byMmsi || new Map()).values()];
     const list = all.filter((x) => x.lat !== undefined && shown(x)).sort((a, b) => (a.mmsi === this._sel) - (b.mmsi === this._sel));
     const far = v.z < 7; // zoomed far out: plain dots, no labels
-    this._hits = [];
     for (const x of list) {
       const p = P(x.lat, x.lon);
       if (!inView(p)) continue;
@@ -1056,7 +1102,20 @@ class ShipsCard extends HTMLElement {
   _renderPop() {
     const pop = this.$("pop");
     const x = this._sel && (this._byMmsi?.get(this._sel) || this._selData);
-    pop.classList.toggle("on", !!x);
+    const m = !x && this._lm != null ? this._landmarks()[this._lm] : null;
+    pop.classList.toggle("on", !!(x || m));
+    if (m) {
+      const c = this._center(), d = c && distNm(c.lat, c.lon, m.lat, m.lon), b = c && bearing(c.lat, c.lon, m.lat, m.lon);
+      pop.innerHTML = `
+        <div class="nm"><ha-icon icon="mdi:map-marker-star" style="color:#c62828"></ha-icon>${esc(m.name)}<ha-icon class="x" icon="mdi:close" data-act="close"></ha-icon></div>
+        <div class="sub">${esc(m.sub || "")}</div>
+        ${m.note ? `<div class="lmnote">${esc(m.note)}</div>` : ""}
+        <div class="kv">
+          <div><span>Position</span><b>${Math.abs(m.lat).toFixed(4)}°${m.lat < 0 ? "S" : "N"} ${Math.abs(m.lon).toFixed(4)}°${m.lon < 0 ? "W" : "E"}</b></div>
+          ${d != null ? `<div><span>From ${esc(c.name || "the location")}</span><b>${num(d)} nm ${compass(b)}</b></div>` : ""}
+        </div>`;
+      return;
+    }
     if (!x) return;
     pop.innerHTML = `
       <div class="nm"><span>${flagEmoji(x.flag)}</span>${esc(x.name || x.mmsi)}${this._tag(x)}<ha-icon class="x" icon="mdi:close" data-act="close"></ha-icon></div>

@@ -137,6 +137,7 @@ resource (Settings → Dashboards → ⋮ → Resources).
 | `rings` | `[1, 2, 5, 10, 25]` | Range rings around the location, nm |
 | `refresh` | `10` | Seconds between updates |
 | `map_height` | fills the screen | px |
+| `markers` | `true` | Landmarks on the map (built in: the **RMS Titanic** wreck site; tap for its story). `false` hides them; a list adds your own: `- {name: Sable Island, lat: 43.93, lon: -59.91, sub: Graveyard of the Atlantic, note: ...}` |
 
 The header's location list also has **Centre of the map…**, which lists the vessels closest to wherever the map is
 centred (inside the areas the monitor receives).
