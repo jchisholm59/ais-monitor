@@ -95,6 +95,20 @@ vessel doesn't alert again for 12 h. Example:
 > HMCS HALIFAX · Royal Canadian Navy · Canada
 > 12.0 kn, 4.6 nm from Halifax Harbour
 
+**Leaving** (switch: *…and when they leave*): the same ships crossing back out, half a mile past the circle so one
+anchored on its edge doesn't flip-flop, after at least 30 minutes inside (ships already in port when the monitor
+starts count). It uses the same notification tag, so on the phone it replaces the arrival notification if that's
+still there. Example:
+
+> 🛳️ **Cruise ship leaving Halifax Harbour**
+> QUEEN MARY 2 · 345 m · Bermuda
+> 18.2 kn, 6.6 nm from Halifax Harbour, destination USNYC
+
+**Photos**: both alerts carry a photo of the ship when one can be found: the main image of the ship's
+[Wikidata](https://www.wikidata.org/) item (a hand-picked exterior shot, not a random one from the ship's gallery),
+found by IMO number, then MMSI, then by name when the item is described as a ship, frigate and so on. Most cruise
+ships and warships have one; small craft usually don't, and alert without. Lookups are cached in `data/photos.json`.
+
 Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)), which sends
 **persistent** notifications: they stay until you tap **Dismiss** (handled by [`alert-dismiss.yaml`](alert-dismiss.yaml));
 **Open** goes to the Ships view. A plain copy goes to a Wear OS watch, since Android doesn't pass persistent

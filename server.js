@@ -340,12 +340,16 @@ function save() {
 
 // ---- alerts ----------------------------------------------------------------
 // Warships and cruise ships entering a harbour: crossing into ALERT radius around a chosen location after having been
-// seen outside it (so ships already in port when the monitor starts never alert). Sent to Home Assistant's webhook.
+// seen outside it (so ships already in port when the monitor starts never alert). Optionally also leaving: crossing
+// back out (half a mile past the circle, so one anchored on the edge doesn't flip-flop) after at least 30 minutes
+// inside; ships already in port when the monitor starts count. Both carry a photo of the ship when one is found.
+// Sent to Home Assistant's webhook.
 
 const DEFAULT_SETTINGS = {
   warships: true,
   cruise: true,
   coastguard: false,
+  departures: false, // also alert when they leave
   radius: num('ALERT_RADIUS_NM', 6), // nm around each harbour location
   harbours: LOCATIONS.length ? [LOCATIONS[0].name] : [],
   cooldownHours: 12,
@@ -368,12 +372,21 @@ function checkHarbours(v) {
     const h = LOCATIONS.find((l) => l.name === name);
     if (!h) continue;
     const st = (v.harb[name] ||= {});
-    const d = dist(h.lat, h.lon, v.lat, v.lon);
+    const d = dist(h.lat, h.lon, v.lat, v.lon), now = Date.now();
     if (d > settings.radius) {
-      st.out = Date.now();
+      st.out = now;
       st.alerted = false;
+      // Leaving: well outside after a stay inside.
+      if (st.inSince && d > settings.radius + 0.5) {
+        const stayed = now - st.inSince >= 30 * 60_000;
+        st.inSince = null;
+        const a = settings.departures && stayed && alertKind(v);
+        if (a && !alerts.some((x) => x.mmsi === v.mmsi && x.harbour === name && x.leaving && now - x.t < 3600_000)) sendAlert(v, a, h, d, true);
+      }
       continue;
     }
+    // Inside. A ship first seen inside (already in port at start-up) counts as having stayed.
+    st.inSince ||= st.out ? now : now - 3600_000;
     if (!st.out || Date.now() - st.out > 6 * 3600_000 || st.alerted) continue; // must have been outside recently
     const a = alertKind(v);
     if (!a) continue; // type may still arrive while it's inside
@@ -392,15 +405,60 @@ const FLAGNAME = (() => {
   }
 })();
 
-function sendAlert(v, a, h, d) {
+// A photo of the ship for the notification: Wikidata's main image (P18) for the ship's item, found by IMO number
+// (P458), else MMSI (P587), else by name when the item is described as a ship. Commons thumbnail, 800 px. Cached.
+const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
+let photos = readJson(PHOTOS_FILE, {}); // mmsi -> {url, t}
+const UA = { 'User-Agent': 'ais-monitor (https://github.com/jchisholm59/ais-monitor)' };
+async function wdJson(url) {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(url, { headers: UA, signal: ctl.signal });
+    return r.ok ? await r.json() : null;
+  } finally {
+    clearTimeout(to);
+  }
+}
+async function shipPhoto(v) {
+  const c = photos[v.mmsi];
+  if (c && Date.now() - c.t < (c.url ? 30 : 7) * 86400_000) return c.url;
+  let url = '';
+  try {
+    const WD = 'https://www.wikidata.org/w/api.php?format=json&';
+    const byClaim = async (claim) => (await wdJson(`${WD}action=query&list=search&srlimit=1&srsearch=${encodeURIComponent('haswbstatement:' + claim)}`))?.query?.search?.[0]?.title;
+    let q = (v.imo && (await byClaim(`P458=${v.imo}`))) || (await byClaim(`P587=${v.mmsi}`));
+    if (!q && v.name && v.name.length > 3) {
+      const r = await wdJson(`${WD}action=wbsearchentities&language=en&type=item&limit=5&search=${encodeURIComponent(v.name)}`);
+      const hit = (r?.search || []).find((x) => /\b(ship|vessel|frigate|destroyer|cruiser|corvette|submarine|carrier|patrol|liner|ferry|icebreaker|tanker|class)\b/i.test(x.description || '') && !/disambiguation/i.test(x.description || ''));
+      q = hit?.id;
+    }
+    if (q) {
+      const file = (await wdJson(`${WD}action=wbgetclaims&property=P18&entity=${q}`))?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+      if (file) {
+        const ii = await wdJson(`https://commons.wikimedia.org/w/api.php?format=json&action=query&prop=imageinfo&iiprop=url&iiurlwidth=800&titles=${encodeURIComponent('File:' + file)}`);
+        url = Object.values(ii?.query?.pages || {})[0]?.imageinfo?.[0]?.thumburl || '';
+      }
+    }
+  } catch (e) {
+    log('photo lookup failed:', v.mmsi, e.message);
+  }
+  photos[v.mmsi] = { url, t: Date.now() };
+  writeJson(PHOTOS_FILE, photos);
+  return url;
+}
+
+async function sendAlert(v, a, h, d, leaving = false) {
   const name = v.name || `MMSI ${v.mmsi}`, flag = flagOf(v.mmsi);
   const what = a.kind === 'warship' ? (a.k.navy ? `${a.k.navy} warship` : 'Warship') : a.kind === 'cruise' ? 'Cruise ship' : 'Coast Guard ship';
   const icon = a.kind === 'warship' ? '⚓' : a.kind === 'cruise' ? '🛳️' : '🛟';
   const bits = [a.k.sub && a.k.sub !== 'Military' && a.kind !== 'cruise' ? a.k.sub : '', v.length ? `${v.length} m` : '', FLAGNAME(flag)].filter(Boolean).join(' · ');
   const move = [v.sog != null ? `${v.sog.toFixed(1)} kn` : '', `${d.toFixed(1)} nm from ${h.name}`, v.dest ? `destination ${v.dest}` : ''].filter(Boolean).join(', ');
+  const image = await shipPhoto(v);
   return send({
-    kind: a.kind, mmsi: v.mmsi, harbour: h.name, priority: 'high', tag: `ais-${a.kind}-${v.mmsi}`,
-    title: `${icon} ${what} entering ${h.name}`,
+    // The same tag for arriving and leaving: the departure replaces the arrival notification if it's still there.
+    kind: a.kind, mmsi: v.mmsi, harbour: h.name, priority: 'high', tag: `ais-${a.kind}-${v.mmsi}`, leaving, image,
+    title: `${icon} ${what} ${leaving ? 'leaving' : 'entering'} ${h.name}`,
     message: `${name}${bits ? ` · ${bits}` : ''}\n${move}`,
   });
 }
@@ -427,7 +485,7 @@ async function send(alert) {
 }
 
 function updateSettings(p) {
-  for (const k of ['warships', 'cruise', 'coastguard']) if (typeof p[k] === 'boolean') settings[k] = p[k];
+  for (const k of ['warships', 'cruise', 'coastguard', 'departures']) if (typeof p[k] === 'boolean') settings[k] = p[k];
   for (const [k, max] of [['radius', 50], ['cooldownHours', 168]]) {
     const n = Number(p[k]);
     if (p[k] !== undefined && Number.isFinite(n) && n > 0 && n <= max) settings[k] = n;
