@@ -334,11 +334,17 @@ export class Bridge {
     return { lat, lon, sog, cog, hdg, stale, age };
   }
 
-  _surfaceAt(lat, lon) {
-    const C = this.C;
+  // Water/quay surface height (ellipsoid metres), from the 3D tiles at full detail. scene.sampleHeight() reads
+  // whatever coarse tiles happen to be loaded and can be off by kilometres (found in the cockpit view), so this waits
+  // for the detailed tiles. Async; null when unknown.
+  async _surfaceAt(lat, lon) {
+    const C = this.C, scene = this.w?.scene;
+    if (!scene) return null;
     try {
+      const pos = [C.Cartographic.fromDegrees(lon, lat)];
       const exclude = [this.points, this.labels, this.bbs].filter(Boolean);
-      const h = this.w.scene.sampleHeight(C.Cartographic.fromDegrees(lon, lat), exclude);
+      const out = this.tiles ? await scene.sampleHeightMostDetailed(pos, exclude) : await C.sampleTerrainMostDetailed(scene.terrainProvider, pos);
+      const h = out?.[0]?.height;
       return fin(h) ? h : null;
     } catch (e) {
       return null;
@@ -361,10 +367,15 @@ export class Bridge {
     const v = entry.v;
     const p = this._project(entry, now);
     // Water (or quay) surface under the vessel; tide and waves aren't in the tiles, so this is mean sea level-ish.
-    if (now - (this._surfMs || 0) > 1000 || this._surface == null) {
+    // Sampled every 2 s (async). A ship is on the water, so anything far from sea level is junk (lakes and rivers
+    // reach a few hundred metres at most).
+    if (!this._surfBusy && now - (this._surfMs || 0) > 2000) {
       this._surfMs = now;
-      const g = this._surfaceAt(p.lat, p.lon);
-      if (g != null) this._surface = g;
+      this._surfBusy = true;
+      this._surfaceAt(p.lat, p.lon).then((g) => {
+        this._surfBusy = false;
+        if (g != null && g > -150 && g < 600) this._surface = g;
+      });
     }
     const surf = this._surface ?? 0;
     const target = C.Cartesian3.fromDegrees(p.lon, p.lat, surf);
