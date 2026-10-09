@@ -50,7 +50,9 @@ Two pieces:
     Needs a free [Cesium ion](https://ion.cesium.com/) token: paste it into the tab once (it's saved to your Home
     Assistant profile; one already pasted into the [SkyAware card](https://github.com/jchisholm59/adsb-monitor)'s
     Cockpit tab is used too). Wants a decent GPU; fine on desktops and phones. It's the companion to that card's
-    cockpit view, after [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view)'s.
+    cockpit view, after [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view)'s. GEV's own cockpit
+    flies aircraft only (selecting a vessel there flies the camera to it once, without following it; checked against
+    its source in October 2026), so riding along on a ship's bridge, live on its real course, is this card's own.
   - **Alerts**: phone alerts for **warships** and **cruise ships** (optionally Coast Guard ships) **entering a
     harbour**, and which harbours to watch.
 - **`ais-monitor`**: a small always-on Node service (no dependencies) that holds one connection to
