@@ -36,6 +36,19 @@ Two pieces:
   - **Vessel**: flag and country, name, class, type, size, draught, MMSI / IMO / callsign, speed, course and heading,
     distance and bearing from the location, the destination and ETA the crew reported, a speed chart, and links to
     MarineTraffic, VesselFinder and MyShipTracking.
+  - **Bridge**: stand on the selected vessel's bridge. Its view over Google's photorealistic 3D world (CesiumJS,
+    loaded only when you open the tab), driven by the live AIS: the camera sits at the ship's reported position, at a
+    bridge height scaled from its length (from ~4 m on a small boat to ~45 m on the largest cruise ships), looking
+    along its true heading, or its course over ground when it doesn't send one. Between reports (AIS is slower than
+    ADS-B) it carries on at the reported speed and course and eases onto each new position, so the view glides
+    rather than jumps. Other vessels show as dots in their class colours with names and speeds. A HUD with flag,
+    name, type, length and destination, navigational status, a heading tape (with a yellow mark where it's actually
+    going), speed and course over ground and the heading. Drag to look around, wheel to zoom, **Chase view** to watch
+    the ship from astern, ◀ ▶ to hop between vessels. Ships don't report their pitch or roll, so the deck stays level.
+    Needs a free [Cesium ion](https://ion.cesium.com/) token: paste it into the tab once (it's saved to your Home
+    Assistant profile; one already pasted into the [SkyAware card](https://github.com/jchisholm59/adsb-monitor)'s
+    Cockpit tab is used too). Wants a decent GPU; fine on desktops and phones. It's the companion to that card's
+    cockpit view, after [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view)'s.
   - **Alerts**: phone alerts for **warships** and **cruise ships** (optionally Coast Guard ships) **entering a
     harbour**, and which harbours to watch.
 - **`ais-monitor`**: a small always-on Node service (no dependencies) that holds one connection to
@@ -110,8 +123,9 @@ curl http://localhost:7110/api/status
 **With HACS:** HACS → ⋮ → Custom repositories → add `https://github.com/jchisholm59/ais-monitor`, type *Dashboard*,
 then download **Ships Card (AIS)**.
 
-**By hand:** copy `dist/ships-card.js` to `/config/www/` and add `/local/ships-card.js` as a *JavaScript module*
-resource (Settings → Dashboards → ⋮ → Resources).
+**By hand:** copy `dist/ships-card.js` and `dist/ships-bridge.js` to `/config/www/` and add `/local/ships-card.js` as a
+*JavaScript module* resource (Settings → Dashboards → ⋮ → Resources). `ships-bridge.js` is loaded by the card when
+its Bridge tab opens; it isn't a resource of its own.
 
 **Then** add a view (a *Panel* view gives the map the whole screen) with:
    ```yaml
@@ -145,6 +159,7 @@ resource (Settings → Dashboards → ⋮ → Resources).
 | `rings` | `[1, 2, 5, 10, 25]` | Range rings around the location, nm |
 | `refresh` | `10` | Seconds between updates |
 | `map_height` | fills the screen | px |
+| `cesium_token` | none | Cesium ion token for the Bridge tab. Easier: paste it into the tab (saved to your HA profile). Create it with only `assets:read` and restrict its Allowed URLs to your HA addresses: anyone who can open the dashboard can read it |
 | `markers` | `[]` | Your own landmarks on the map: a list like `- {name: Sable Island, lat: 43.93, lon: -59.91, sub: Graveyard of the Atlantic, note: ...}`. `false` also hides the shipwrecks |
 
 The header's location list also has **Centre of the map…**, which lists the vessels closest to wherever the map is

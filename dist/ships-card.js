@@ -1,7 +1,10 @@
 // Ships card for Home Assistant (custom:ships-card). See README.md.
 // The vessels closest to a chosen location from ais-monitor (AIS via aisstream.io), on a map, in a sortable list and
 // one at a time, classified as military, government, commercial, service, fishing or private.
-// Install: copy to /config/www/, add /local/ships-card.js as a JavaScript module resource.
+// Bridge tab: the selected vessel's view from its bridge over Google's photorealistic 3D world (ships-bridge.js,
+// CesiumJS from Cesium's CDN, loaded only when the tab opens; needs a Cesium ion token, pasted into the tab).
+// Install: copy ships-card.js and ships-bridge.js to /config/www/, add /local/ships-card.js as a JavaScript module
+// resource (ships-bridge.js is loaded by the card, not a resource of its own).
 
 const DEFAULTS = {
   title: "Ships",
@@ -11,6 +14,7 @@ const DEFAULTS = {
   refresh: 10, // seconds
   map_height: null,
   markers: [], // your own landmarks on the map: a list of {name, lat, lon, sub, note}; false hides the shipwrecks too
+  cesium_token: "", // optional: Cesium ion token for the Bridge tab (or paste it into the tab; saved to your HA profile)
 };
 
 // Major shipwrecks and naval losses, drawn on the map (filter: Wrecks). Positions from public sources; `approx` where
@@ -146,7 +150,8 @@ const WRECK_KINDS = { civil: { l: "Shipwrecks", c: "#8e1b1b", i: "mdi:ferry" }, 
 
 const NM = 3440.065;
 const RAD = Math.PI / 180;
-const TABS = [["map", "Map", "mdi:map"], ["list", "Vessels", "mdi:format-list-bulleted"], ["vessel", "Vessel", "mdi:ferry"], ["alerts", "Alerts", "mdi:bell-ring-outline"]];
+const TABS = [["map", "Map", "mdi:map"], ["list", "Vessels", "mdi:format-list-bulleted"], ["vessel", "Vessel", "mdi:ferry"],
+  ["bridge", "Bridge", "mdi:ship-wheel"], ["alerts", "Alerts", "mdi:bell-ring-outline"]];
 const CLASSES = [
   ["mil", "Military", "mdi:shield-star", "#d4a72c"],
   ["gov", "Government", "mdi:lifebuoy", "#ff7043"],
@@ -243,6 +248,7 @@ class ShipsCard extends HTMLElement {
       }
     };
     this._tab = get("tab", "map");
+    if (this._tab === "bridge") this._tab = "map"; // Cesium only loads when asked for
     this._loc = get("loc", "");
     this._labels = get("labels", "1") === "1";
     this._sat = get("sat", "0") === "1"; // satellite basemap
@@ -284,6 +290,7 @@ class ShipsCard extends HTMLElement {
     if (this._built) this._ro.observe(this.$("map"));
   }
   disconnectedCallback() {
+    this._closeBridge();
     for (const t of this._timers || []) clearInterval(t);
     this._timers = [];
     this._ro?.disconnect();
@@ -357,6 +364,7 @@ class ShipsCard extends HTMLElement {
       this._index();
       if (this._sel) await this._loadSel();
       this._loadView(true);
+      this._bridge?.setData(this._bridgeList(), this._sel);
     } catch (e) {
       this._err = e.message || String(e);
     }
@@ -596,6 +604,7 @@ class ShipsCard extends HTMLElement {
           <div class="listbar" id="lfoot"></div>
         </div>
         <div class="pane" id="p-vessel"><div id="vessel"></div></div>
+        <div class="pane" id="p-bridge"><div id="bridge"></div></div>
         <div class="pane" id="p-alerts"><div id="alerts"></div></div>
       </ha-card>`;
 
@@ -717,6 +726,7 @@ class ShipsCard extends HTMLElement {
       if (!a) return;
       const act = a.dataset.act;
       if (act === "details") this._setTab("vessel");
+      else if (act === "bridge") this._setTab("bridge");
       else if (act === "close") this._select(null);
       else if (act === "locate") this._locate(Number(a.dataset.m));
       else if (act === "pick") this._select(Number(a.dataset.m));
@@ -742,7 +752,9 @@ class ShipsCard extends HTMLElement {
   _setTab(t) {
     if (!TABS.some(([k]) => k === t)) t = "map";
     this._tab = t;
-    this._save("tab", t);
+    if (t !== "bridge") this._save("tab", t);
+    if (t === "bridge") this._openBridge();
+    else this._closeBridge();
     for (const b of this.$("tabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === t);
     for (const [k] of TABS) this.$("p-" + k).classList.toggle("on", k === t);
     if (t === "alerts") this._loadAlerts();
@@ -753,10 +765,91 @@ class ShipsCard extends HTMLElement {
     this._lm = null;
     this._sel = mmsi || null;
     this._selData = mmsi ? this._byMmsi?.get(mmsi) || null : null;
+    this._bridge?.setData(this._bridgeList(), this._sel);
     this._renderAll();
     if (mmsi) {
       await this._loadSel();
+      this._bridge?.setData(this._bridgeList(), this._sel);
       this._renderAll();
+    }
+  }
+
+  // ---- bridge view ---------------------------------------------------------------------------
+
+  // Every vessel we know about, with the selected one's fuller record.
+  _bridgeList() {
+    const m = new Map(this._byMmsi || []);
+    if (this._sel && this._selData?.lat !== undefined) m.set(this._sel, { ...(m.get(this._sel) || {}), ...this._selData });
+    return [...m.values()];
+  }
+
+  async _openBridge() {
+    if (this._bridge || this._bridgeLoading) return;
+    // Nothing selected: the nearest vessel under way (else the nearest).
+    if (!this._sel || !this._byMmsi?.has(this._sel)) {
+      const vs = (this._vessels || []).filter((v) => v.lat !== undefined).sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9));
+      const pick = vs.find((v) => v.sog > 0.5 && (v.posAge ?? 0) < 180) || vs[0];
+      if (pick) this._select(pick.mmsi);
+    }
+    this._bridgeLoading = true;
+    try {
+      const here = new URL(import.meta.url);
+      const [mod, token] = await Promise.all([import(new URL("./ships-bridge.js" + here.search, here).href), this._cesiumToken()]);
+      if (this._tab !== "bridge" || !this.isConnected) return;
+      this._bridge = new mod.Bridge(this.$("bridge"), {
+        token,
+        saveToken: async (t) => {
+          await this._saveCesiumToken(t);
+          this._closeBridge();
+          this._openBridge();
+        },
+        color: (v) => CLASS[v.cls]?.c || "#9e9e9e",
+        onPick: (mmsi) => this._select(mmsi),
+        onExit: () => this._setTab("map"),
+        label: (v) => ({
+          nm: `${flagEmoji(v.flag)} ${v.name || v.mmsi}`.trim(),
+          sub: [v.cls === "mil" && v.navy ? v.navy : v.sub || v.typeLabel, v.length ? `${v.length} m` : "", v.dest ? `→ ${v.dest}` : ""].filter(Boolean).join(" · "),
+        }),
+        status: (v) => STATUS[v.status] || "",
+      });
+      this._bridge.setData(this._bridgeList(), this._sel);
+      this._bridge.start();
+    } catch (e) {
+      this.$("bridge").innerHTML = `<div class="muted" style="padding:30px;text-align:center">Couldn't load the bridge view: ${esc(e.message || e)}</div>`;
+    } finally {
+      this._bridgeLoading = false;
+    }
+  }
+
+  _closeBridge() {
+    if (!this._bridge) return;
+    this._bridge.destroy();
+    this._bridge = null;
+  }
+
+  // Cesium token: the card config's cesium_token, else the one pasted into the Bridge tab (or the Planes card's
+  // Cockpit tab), kept in the HA user's profile (frontend user data), else in this browser.
+  async _cesiumToken() {
+    if (this._config.cesium_token) return this._config.cesium_token;
+    for (const key of ["ships-card", "skyaware-card"]) {
+      try {
+        const r = await this._hass?.callWS({ type: "frontend/get_user_data", key });
+        if (r?.value?.cesium_token) return r.value.cesium_token;
+      } catch (e) {}
+    }
+    try {
+      return localStorage.getItem("ships-card:cesium_token") || localStorage.getItem("skyaware-card:cesium_token") || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  async _saveCesiumToken(t) {
+    try {
+      const r = await this._hass.callWS({ type: "frontend/get_user_data", key: "ships-card" });
+      await this._hass.callWS({ type: "frontend/set_user_data", key: "ships-card", value: { ...(r?.value || {}), cesium_token: t } });
+    } catch (e) {
+      localStorage.setItem("ships-card:cesium_token", t);
     }
   }
 
@@ -1261,7 +1354,8 @@ class ShipsCard extends HTMLElement {
         <div><span>Bearing</span><b>${x.brg != null ? `${x.brg}° ${compass(x.brg)}` : "–"}</b></div>
         <div><span>Heading to</span><b>${esc(x.dest || "–")}</b></div>
       </div>
-      <div class="acts"><button class="btn pri" data-act="details"><ha-icon icon="mdi:information-outline"></ha-icon>Vessel details</button></div>`;
+      <div class="acts"><button class="btn pri" data-act="details"><ha-icon icon="mdi:information-outline"></ha-icon>Vessel details</button>
+        <button class="btn" data-act="bridge"><ha-icon icon="mdi:ship-wheel"></ha-icon>Bridge view</button></div>`;
   }
 
   // ---- list ----------------------------------------------------------------------------------
