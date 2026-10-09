@@ -6,6 +6,8 @@ The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (ai
 
 ![Map: Halifax Harbour with a cruise ship selected, vessels coloured by class](docs/map.png)
 
+![Bridge tab: from Queen Mary 2's bridge at anchor in Halifax Harbour, looking at downtown Halifax and Georges Island, with Norwegian Breakaway and Sapphire Princess alongside and the harbour ferries and traffic labelled](docs/bridge.jpg)
+
 | Worldwide | Vessel details |
 |---|---|
 | ![Map zoomed out over Northern Europe, every vessel in view](docs/world.png) | ![Vessel tab: a cruise ship's flag, size, draught, destination and ETA](docs/vessel.png) |

@@ -89,7 +89,7 @@ const STYLE = `
   .br .ident .nm { font-size: 1.25em; font-weight: 700; letter-spacing: .03em; }
   .br .ident .sub { opacity: .85; font-size: .85em; }
   .br .tape { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(60%, 420px); height: 34px; }
-  .br .box { position: absolute; top: 50%; transform: translateY(-50%); padding: 4px 8px; border: 1.5px solid rgba(255,255,255,.85); border-radius: 6px; background: rgba(0,0,0,.25); text-align: center; min-width: 64px; }
+  .br .box { position: absolute; top: 50%; transform: translateY(-50%); padding: 4px 8px; border: 1.5px solid rgba(255,255,255,.85); border-radius: 6px; background: rgba(8,14,24,.82); text-align: center; min-width: 64px; }
   .br .box b { display: block; font-size: 1.35em; }
   .br .box span { font-size: .75em; opacity: .85; display: block; }
   .br .sog { left: 12px; } .br .cog { right: 12px; }
@@ -413,7 +413,8 @@ export class Bridge {
       this.chaseBb.height = 64 * s;
     }
     const age = (now - entry.recvMs) / 1000;
-    this.$.status.textContent = age > LOST_S ? "No recent position: holding the last one"
+    const underWay = p.sog > 0.5 * KT;
+    this.$.status.textContent = !underWay ? this._note || "" : age > LOST_S ? "No recent position: holding the last one"
       : age > NOTE_S ? `Last position ${age < 120 ? Math.round(age) + " s" : Math.round(age / 60) + " min"} ago${p.stale ? ": holding" : ": estimating"}` : this._note || "";
     if (now - (this._hudMs || 0) > 150) {
       this._hudMs = now;
@@ -436,7 +437,8 @@ export class Bridge {
           lb: this.labels.add({ font: "600 13px sans-serif", fillColor: C.Color.WHITE, showBackground: true,
             backgroundColor: new C.Color(0, 0, 0, 0.55), backgroundPadding: new C.Cartesian2(5, 3),
             pixelOffset: new C.Cartesian2(10, -10), horizontalOrigin: C.HorizontalOrigin.LEFT,
-            distanceDisplayCondition: new C.DistanceDisplayCondition(0, 30000) }),
+            distanceDisplayCondition: new C.DistanceDisplayCondition(0, 20000),
+            translucencyByDistance: new C.NearFarScalar(1500, 1, 9000, 0), scaleByDistance: new C.NearFarScalar(500, 1.1, 8000, 0.75) }),
         };
         this.marks.set(mmsi, m);
       }
@@ -470,7 +472,7 @@ export class Bridge {
     this.$.sub.textContent = lab.sub || "";
     this.$.nav.textContent = this.opts.status?.(v) || "";
     this.$.sog.textContent = fmt(v.sog, 1);
-    this.$.cog.textContent = fin(v.cog) ? String(Math.round(v.cog)).padStart(3, "0") : "–";
+    this.$.cog.textContent = fin(v.cog) && fin(v.sog) && v.sog >= 0.5 ? String(Math.round(v.cog)).padStart(3, "0") : "–";
     this.$.hdgv.textContent = p.hdg != null && fin(v.hdg) && v.hdg < 360 ? `HDG ${String(Math.round(v.hdg)).padStart(3, "0")}°` : "no heading sent";
     const hdg = norm360((this.heading ?? 0) + this.look.yaw);
     let g = "";
@@ -482,7 +484,7 @@ export class Bridge {
       if (big && Math.abs(x) > 30) g += `<text x="${x.toFixed(1)}" y="12" fill="#fff" font-size="11" text-anchor="middle">${({ 0: "N", 90: "E", 180: "S", 270: "W" })[n] ?? String(n / 10).padStart(2, "0")}</text>`;
     }
     // COG marker on the tape, where the vessel is actually going.
-    if (fin(v.cog)) {
+    if (fin(v.cog) && fin(v.sog) && v.sog >= 0.5) {
       const cx = (((((v.cog - hdg + 540) % 360) - 180) / 60) * 200);
       if (Math.abs(cx) <= 200) g += `<path d="M${(cx - 5).toFixed(1)},34 L${cx.toFixed(1)},28 L${(cx + 5).toFixed(1)},34 Z" fill="#ffcc00"/>`;
     }
