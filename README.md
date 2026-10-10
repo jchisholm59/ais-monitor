@@ -187,7 +187,7 @@ its Bridge tab opens; it isn't a resource of its own.
 The monitor serves the whole dashboard on its own port: open **`http://<monitor>:7110/`** in any browser. It's the same
 card, with the few things it normally takes from Home Assistant provided by a small page in `web/` (a card frame, the
 Material Design icons it uses, light and dark colours that follow your system setting). Everything works the same: map,
-vessels, vessel details, the **Bridge** view (the Cesium token is kept in that browser), wrecks and alerts. On a phone,
+vessels, vessel details, the **Bridge** view (the Cesium token is kept in that browser, or set `CESIUM_TOKEN`), wrecks and alerts. On a phone,
 use your browser's **Add to Home screen**: it opens full screen like an app.
 
 - **Card options**: put any of them in the monitor's `data/card.json`, e.g. `{"title": "Harbour", "n": 30}`. The page
@@ -198,6 +198,27 @@ use your browser's **Add to Home screen**: it opens full screen like an app.
   it needs one). Arrivals and departures come with their title, priority, a tag icon and the ship's photo;
   `DASHBOARD_URL=http://<monitor>:7110/` makes tapping one open the dashboard. Test it from the Alerts tab.
 - The JSON list of endpoints, formerly at `/`, is at `/api`.
+
+### Sharing it with guests
+
+To let other people look at your dashboard without being able to change anything, set a password in the monitor's
+`.env`:
+
+```
+ADMIN_PASSWORD=pick-a-long-one
+CESIUM_TOKEN=your-cesium-ion-token   # optional: lets guests use the Bridge view without a token of their own
+```
+
+Guests then see everything except the Alerts tab, which shows **Viewing as a guest** and a sign-in box. Signing in with
+the password unlocks it: alert settings, editing the saved locations and test alerts. The browser (or, in the Home Assistant card, your HA
+profile) remembers you until you **Sign out**, and changing the password signs everyone out. The monitor enforces it,
+not just the page: without the sign-in token, every change request is refused, and five wrong passwords lock that
+address out for 15 minutes. With no `ADMIN_PASSWORD`, nothing changes: no sign-in, everything open, as before.
+
+- `CESIUM_TOKEN` is handed to every visitor, so create one with only `assets:read`, and add your shared address to its
+  Allowed URLs if you restrict them. Guest use counts against your Cesium ion quota.
+- To put it on the internet, use a tunnel (Cloudflare Tunnel, Tailscale Funnel) rather than opening a port on your
+  router. Don't rely on "only trust my LAN" instead of a password: through a tunnel, every visitor arrives from your LAN.
 
 ## Configuration
 
@@ -215,6 +236,9 @@ use your browser's **Add to Home screen**: it opens full screen like an app.
 | `NTFY_TOKEN` | none | Only for a protected ntfy server or topic |
 | `DASHBOARD_URL` | none | Opened when you tap an ntfy alert, e.g. `http://192.168.1.20:7110/` |
 | `ALERT_RADIUS_NM` | `6` | Starting harbour circle for alerts; then set in the card |
+| `ADMIN_PASSWORD` | none | Guests can look but not change anything; sign in on the Alerts tab (see [Sharing it with guests](#sharing-it-with-guests)) |
+| `CESIUM_TOKEN` | none | Cesium ion token for the Bridge tab, for everyone using the dashboard (and guests) |
+| `ADMIN_TRUSTED_IPS` | none | Addresses always treated as signed in (the HA add-on sets Home Assistant's ingress proxy) |
 | `PORT` | `7110` | |
 
 ### Card options
@@ -227,6 +251,7 @@ use your browser's **Add to Home screen**: it opens full screen like an app.
 | `refresh` | `10` | Seconds between updates |
 | `map_height` | fills the screen | px |
 | `cesium_token` | none | Cesium ion token for the Bridge tab. Easier: paste it into the tab (saved to your HA profile). Create it with only `assets:read` and restrict its Allowed URLs to your HA addresses: anyone who can open the dashboard can read it |
+| `monitor_token` | none | With `ADMIN_PASSWORD` on the monitor: easier to sign in on the Alerts tab (saved to your HA profile) |
 | `markers` | `[]` | Your own landmarks on the map: a list like `- {name: Sable Island, lat: 43.93, lon: -59.91, sub: Graveyard of the Atlantic, note: ...}`. `false` also hides the shipwrecks |
 
 The header's location list also has **Centre of the map…**, which lists the vessels closest to wherever the map is
@@ -244,12 +269,13 @@ centred (inside the areas the monitor receives).
 | `GET / PUT /api/settings` | alert settings |
 | `GET /api/alerts` | last 100 alerts |
 | `POST /api/test-alert` | send a test notification |
+| `GET /api/auth`, `POST /api/login` | with `ADMIN_PASSWORD`: whether this request is signed in; `{password}` → `{token}`, sent as `Authorization: Bearer <token>` (needed for settings, alerts, test alerts and changing locations) |
 
 ## Notes
 - Destinations and ETAs are typed in by the crew and are often stale or abbreviated (e.g. "CA HAL").
 - Warships often switch AIS off or send little; many small boats have no AIS.
-- Anyone who can reach the monitor's port can read the vessel list and change the alert settings. Keep it on your
-  LAN or VPN.
+- Anyone who can reach the monitor's port can read the vessel list. Without `ADMIN_PASSWORD` they can also change the
+  alert settings and locations: keep it on your LAN or VPN, or set one (see [Sharing it with guests](#sharing-it-with-guests)).
 - Map: Esri World Gray Canvas and World Imagery (Esri, Maxar, Earthstar Geographics, HERE, Garmin, © OpenStreetMap contributors). AIS data: aisstream.io.
 
 ## License

@@ -15,6 +15,7 @@ const DEFAULTS = {
   map_height: null,
   markers: [], // your own landmarks on the map: a list of {name, lat, lon, sub, note}; false hides the shipwrecks too
   cesium_token: "", // optional: Cesium ion token for the Bridge tab (or paste it into the tab; saved to your HA profile)
+  monitor_token: "", // ais-monitor with ADMIN_PASSWORD: its admin token (or sign in on the Alerts tab; saved to your HA profile)
 };
 
 // Major shipwrecks and naval losses, drawn on the map (filter: Wrecks). Positions from public sources; `approx` where
@@ -307,6 +308,7 @@ class ShipsCard extends HTMLElement {
   // ---- data ----------------------------------------------------------------------------------
 
   async _mon(path, opt = {}) {
+    if (this._monToken) opt = { ...opt, headers: { ...opt.headers, Authorization: `Bearer ${this._monToken}` } };
     const all = this._config.monitor;
     const urls = this._base ? [this._base, ...all.filter((u) => u !== this._base)] : all;
     let err;
@@ -332,9 +334,17 @@ class ShipsCard extends HTMLElement {
     this._timers = [every(() => this._loadStatus(), 30000), every(() => this._poll(), Math.max(5, this._config.refresh) * 1000)];
   }
 
+  // Guest or owner: with ADMIN_PASSWORD set on the monitor, only a signed-in owner sees the alert settings and can edit
+  // the saved locations. An older monitor without /api/auth is open to everyone.
+  async _loadAuth() {
+    if (this._monToken === undefined || !this._hass) this._monToken = this._config.monitor_token || (await this._pref("monitor_token"));
+    this._auth = await this._mon("/api/auth").catch((e) => (/HTTP 404/.test(e.message) ? { required: false, admin: true } : Promise.reject(e)));
+    return this._auth;
+  }
+
   async _loadStatus() {
     try {
-      this._status = await this._mon("/api/status");
+      [this._status] = await Promise.all([this._mon("/api/status"), this._loadAuth()]);
       this._err = null;
     } catch (e) {
       this._err = e.message || String(e);
@@ -730,6 +740,8 @@ class ShipsCard extends HTMLElement {
       else if (act === "close") this._select(null);
       else if (act === "locate") this._locate(Number(a.dataset.m));
       else if (act === "pick") this._select(Number(a.dataset.m));
+      else if (act === "login") this._signIn(this.$("login-pw").value);
+      else if (act === "logout") this._signOut();
       else if (act === "test") {
         a.disabled = true;
         this._mon("/api/test-alert", { method: "POST" }).then(() => this._loadAlerts(), () => {}).finally(() => (a.disabled = false));
@@ -737,6 +749,9 @@ class ShipsCard extends HTMLElement {
         const h = a.dataset.h, cur = this._settings.harbours || [];
         this._saveSettings({ harbours: cur.includes(h) ? cur.filter((x) => x !== h) : [...cur, h] });
       }
+    });
+    this.$("alerts").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.id === "login-pw") this._signIn(e.target.value);
     });
     this.$("alerts").addEventListener("change", (e) => {
       const el = e.target.closest("[data-set]");
@@ -830,27 +845,65 @@ class ShipsCard extends HTMLElement {
   // Cesium token: the card config's cesium_token, else the one pasted into the Bridge tab (or the Planes card's
   // Cockpit tab), kept in the HA user's profile (frontend user data), else in this browser.
   async _cesiumToken() {
-    if (this._config.cesium_token) return this._config.cesium_token;
-    for (const key of ["ships-card", "skyaware-card"]) {
-      try {
-        const r = await this._hass?.callWS({ type: "frontend/get_user_data", key });
-        if (r?.value?.cesium_token) return r.value.cesium_token;
-      } catch (e) {}
-    }
-    try {
-      return localStorage.getItem("ships-card:cesium_token") || localStorage.getItem("skyaware-card:cesium_token") || "";
-    } catch (e) {
-      return "";
-    }
+    return this._config.cesium_token || (await this._pref("cesium_token", ["ships-card", "skyaware-card"]));
   }
 
   async _saveCesiumToken(t) {
+    await this._setPref("cesium_token", t);
+  }
+
+  // A per-user setting (the Cesium token, the monitor's admin token): in the HA user's profile (frontend user data),
+  // else (no HA, e.g. the standalone dashboard) in this browser.
+  async _pref(k, keys = ["ships-card"]) {
+    for (const key of keys) {
+      try {
+        const r = await this._hass?.callWS({ type: "frontend/get_user_data", key });
+        if (r?.value?.[k]) return r.value[k];
+      } catch (e) {}
+    }
+    try {
+      for (const key of keys) if (localStorage.getItem(key + ":" + k)) return localStorage.getItem(key + ":" + k);
+    } catch (e) {}
+    return "";
+  }
+
+  async _setPref(k, v) {
     try {
       const r = await this._hass.callWS({ type: "frontend/get_user_data", key: "ships-card" });
-      await this._hass.callWS({ type: "frontend/set_user_data", key: "ships-card", value: { ...(r?.value || {}), cesium_token: t } });
+      await this._hass.callWS({ type: "frontend/set_user_data", key: "ships-card", value: { ...(r?.value || {}), [k]: v } });
     } catch (e) {
-      localStorage.setItem("ships-card:cesium_token", t);
+      try {
+        if (v) localStorage.setItem("ships-card:" + k, v);
+        else localStorage.removeItem("ships-card:" + k);
+      } catch (e2) {}
     }
+  }
+
+  // Sign in to (or out of) the monitor: the password buys an admin token, kept like the Cesium token.
+  async _signIn(password) {
+    const err = this.$("login-err");
+    try {
+      const r = await fetch((this._base || this._config.monitor[0]).replace(/\/$/, "") + "/api/login", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.token) throw new Error(d.error || `HTTP ${r.status}`);
+      this._monToken = d.token;
+      await this._setPref("monitor_token", d.token);
+      await this._loadStatus();
+      await this._loadAlerts();
+    } catch (e) {
+      if (err) err.textContent = e.message || String(e);
+    }
+  }
+
+  async _signOut() {
+    this._monToken = "";
+    this._locOpen = false;
+    await this._setPref("monitor_token", "");
+    await this._loadStatus();
+    await this._loadAlerts();
+    this._renderLocPanel();
   }
 
   _locate(mmsi, obj) {
@@ -953,6 +1006,7 @@ class ShipsCard extends HTMLElement {
   // ---- alerts --------------------------------------------------------------------------------
 
   async _loadAlerts() {
+    if (this._auth && !this._auth.admin) return this._renderAlerts(true);
     try {
       [this._settings, this._alerts] = await Promise.all([this._mon("/api/settings"), this._mon("/api/alerts")]);
       this._aErr = null;
@@ -977,6 +1031,15 @@ class ShipsCard extends HTMLElement {
     const box = this.$("alerts");
     if (!force && box.contains(this.shadowRoot.activeElement)) return;
     const s = this._settings;
+    if (this._auth && !this._auth.admin) {
+      box.innerHTML = `<div class="panel" style="max-width:420px;margin:20px auto">
+        <h4><ha-icon icon="mdi:account-lock-outline" style="color:var(--primary-color)"></ha-icon> Viewing as a guest</h4>
+        <div class="muted" style="font-size:.88em;margin-bottom:10px">Everything else here is yours to explore. Alerts and saved locations belong to whoever runs this monitor: sign in to change them.</div>
+        <div class="arow" style="border:none"><input type="password" class="q" id="login-pw" placeholder="Password" autocomplete="current-password" style="flex:1">
+          <button class="btn pri" data-act="login"><ha-icon icon="mdi:login"></ha-icon>Sign in</button></div>
+        <div class="bad" id="login-err" style="font-size:.85em"></div></div>`;
+      return;
+    }
     if (!s) {
       box.innerHTML = `<div class="empty">${this._aErr ? `Can't reach ais-monitor (${esc(this._aErr)})` : "Loading…"}</div>`;
       return;
@@ -990,6 +1053,7 @@ class ShipsCard extends HTMLElement {
         <div style="flex:1;min-width:220px;font-size:.88em">Sticky phone notifications when a ship <b>enters a harbour</b>: it crosses into the circle around the harbour location after being seen outside it, so ships already in port never alert. Sent by ais-monitor through Home Assistant; tap one to open this card.
           <div class="muted">${s.webhook || s.ntfy ? `<span class="good">${[s.webhook && "HA webhook set", s.ntfy && "ntfy set"].filter(Boolean).join(" · ")}</span>` : `<span class="bad">No HA_WEBHOOK or NTFY_URL in ais-monitor's .env: alerts are only logged</span>`}${this._aErr ? ` · <span class="bad">${esc(this._aErr)}</span>` : ""}</div></div>
         <button class="btn" data-act="test"><ha-icon icon="mdi:send"></ha-icon>Send a test</button>
+        ${this._auth?.required ? `<button class="btn" data-act="logout" title="Signed in as the owner"><ha-icon icon="mdi:logout"></ha-icon>Sign out</button>` : ""}
       </div>
       <div class="agrid">
         <div class="panel"><h4>Alert me about</h4>
@@ -1031,7 +1095,7 @@ class ShipsCard extends HTMLElement {
     const sel = this.$("loc"), locs = s?.locations || [], cur = this._center();
     const opts = locs.map((l) => `<option value="${esc(l.name)}">${esc(l.name)}</option>`).join("") +
       (this._loc.startsWith("pt:") ? `<option value="${esc(this._loc)}">Map centre (${esc(this._loc.slice(3))})</option>` : "") +
-      `<option value="__map">Centre of the map…</option><option value="__manage">Manage locations…</option>`;
+      `<option value="__map">Centre of the map…</option>${this._auth?.admin === false ? "" : `<option value="__manage">Manage locations…</option>`}`;
     if (sel.dataset.o !== opts) {
       sel.innerHTML = opts;
       sel.dataset.o = opts;

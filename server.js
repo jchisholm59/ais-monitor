@@ -47,6 +47,8 @@ const HA_WEBHOOK = env('HA_WEBHOOK');
 const NTFY_URL = env('NTFY_URL');
 const NTFY_TOKEN = env('NTFY_TOKEN');
 const DASHBOARD_URL = env('DASHBOARD_URL'); // where tapping an ntfy alert goes, e.g. http://granite:7110/
+const AUTH = require('./auth')(env('ADMIN_PASSWORD'), 'ais-monitor', env('ADMIN_TRUSTED_IPS')); // guests can look, only the owner can change
+const CESIUM_TOKEN = env('CESIUM_TOKEN'); // the Bridge tab's token for everyone using the dashboard (and guests)
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data'); // the HA add-on sets /data
 const VESSELS_FILE = path.join(DATA_DIR, 'vessels.json');
@@ -535,7 +537,7 @@ function updateSettings(p) {
 
 // ---- HTTP ------------------------------------------------------------------
 
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'content-type, authorization' };
 function body(req) {
   return new Promise((resolve, reject) => {
     let s = '';
@@ -672,6 +674,18 @@ const server = http.createServer(async (req, res) => {
     if (!v) return sendJson(res, { error: 'unknown vessel' }, 404);
     return sendJson(res, { ...publicVessel(v, center()), track: v.track.map(([t, lat, lon, sog]) => ({ t, lat, lon, sog })) });
   }
+  if (p === '/api/auth') return sendJson(res, AUTH.status(req));
+  if (p === '/api/login' && req.method === 'POST') {
+    try {
+      const r = await AUTH.login(req, (await body(req)).password);
+      return sendJson(res, r.body, r.status);
+    } catch (e) {
+      return sendJson(res, { error: e.message }, 400);
+    }
+  }
+  // The owner's side: alert settings, the alert history, test alerts and editing the saved locations.
+  const write = req.method !== 'GET' && req.method !== 'HEAD';
+  if ((/^\/api\/(settings|alerts|test-alert)$/.test(p) || (p === '/api/locations' && write)) && !AUTH.isAdmin(req)) return sendJson(res, { error: 'sign in to change alerts' }, 401);
   if (p === '/api/locations' && req.method === 'GET') return sendJson(res, LOCATIONS);
   if (p === '/api/locations' && req.method === 'POST') {
     try {
@@ -697,12 +711,12 @@ const server = http.createServer(async (req, res) => {
   // The standalone dashboard: the card without Home Assistant (web/), the card itself (dist/), optional settings.
   if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendFile(res, path.join(__dirname, 'web', 'index.html'));
   if (req.method === 'GET' && /^\/(web|dist)\/[\w.-]+$/.test(p)) return sendFile(res, path.join(__dirname, p));
-  if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, readJson(path.join(DATA_DIR, 'card.json'), {}));
-  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/settings', '/api/alerts', '/api/test-alert'] });
+  if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, { ...(CESIUM_TOKEN ? { cesium_token: CESIUM_TOKEN } : {}), ...readJson(path.join(DATA_DIR, 'card.json'), {}) });
+  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
   sendJson(res, { error: 'not found' }, 404);
 });
 
-server.listen(PORT, () => log(`ais-monitor on :${PORT} (dashboard at /, alerts: ${[HA_WEBHOOK && 'HA webhook', NTFY_URL && 'ntfy'].filter(Boolean).join(' + ') || 'none set'}), ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
+server.listen(PORT, () => log(`ais-monitor on :${PORT} (dashboard at /, alerts: ${[HA_WEBHOOK && 'HA webhook', NTFY_URL && 'ntfy'].filter(Boolean).join(' + ') || 'none set'}, ${AUTH.required ? 'guests read-only' : 'no sign-in'}), ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
 connect();
 setInterval(save, WORLDWIDE ? 300_000 : 120_000);
 // Message rate over the last minute, for the status.
