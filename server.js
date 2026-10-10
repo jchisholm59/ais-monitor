@@ -42,6 +42,11 @@ function computeAreas() {
 computeAreas();
 const CLOSEST = num('CLOSEST', 50);
 const HA_WEBHOOK = env('HA_WEBHOOK');
+// ntfy (https://ntfy.sh, or your own ntfy server): phone alerts without Home Assistant. NTFY_URL is the topic URL,
+// e.g. https://ntfy.sh/my-ships-7f3k; NTFY_TOKEN only for a protected server or topic. Either or both can be set.
+const NTFY_URL = env('NTFY_URL');
+const NTFY_TOKEN = env('NTFY_TOKEN');
+const DASHBOARD_URL = env('DASHBOARD_URL'); // where tapping an ntfy alert goes, e.g. http://granite:7110/
 
 const DATA_DIR = path.join(__dirname, 'data');
 const VESSELS_FILE = path.join(DATA_DIR, 'vessels.json');
@@ -469,19 +474,52 @@ async function send(alert) {
   alerts = alerts.slice(-200);
   writeJson(ALERTS_FILE, alerts);
   log('alert', alert.kind, alert.title, '|', alert.message.replace(/\n/g, ' | '));
-  if (!HA_WEBHOOK) return rec;
-  try {
-    const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), 8000);
-    const r = await fetch(HA_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alert), signal: ctl.signal });
-    clearTimeout(to);
-    rec.sent = r.ok;
-  } catch (e) {
-    rec.sent = false;
-    log('webhook failed:', e.message);
-  }
+  if (!HA_WEBHOOK && !NTFY_URL) return rec;
+  const results = await Promise.all([HA_WEBHOOK && sendWebhook(alert), NTFY_URL && sendNtfy(alert)].filter(Boolean));
+  rec.sent = results.some(Boolean);
   writeJson(ALERTS_FILE, alerts);
   return rec;
+}
+
+async function postJson(url, obj, headers = {}) {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 8000);
+  try {
+    return await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(obj), signal: ctl.signal });
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+async function sendWebhook(alert) {
+  try {
+    const r = await postJson(HA_WEBHOOK, alert);
+    if (!r.ok) log('webhook HTTP', r.status);
+    return r.ok;
+  } catch (e) {
+    log('webhook failed:', e.message);
+    return false;
+  }
+}
+
+// ntfy's JSON publishing: POST {topic, title, message, ...} to the server's root.
+const NTFY_TAGS = { warship: 'anchor', cruise: 'passenger_ship', coastguard: 'sos', test: 'white_check_mark' };
+async function sendNtfy(alert) {
+  try {
+    const u = new URL(NTFY_URL);
+    const msg = {
+      topic: u.pathname.replace(/^\/+|\/+$/g, ''), title: alert.title, message: alert.message || '',
+      priority: alert.priority === 'high' ? 4 : 3, tags: [NTFY_TAGS[alert.kind] || 'ship'],
+      ...(alert.image ? { attach: alert.image } : {}),
+      ...(DASHBOARD_URL ? { click: DASHBOARD_URL } : {}),
+    };
+    const r = await postJson(`${u.origin}/`, msg, NTFY_TOKEN ? { Authorization: `Bearer ${NTFY_TOKEN}` } : {});
+    if (!r.ok) log('ntfy HTTP', r.status);
+    return r.ok;
+  } catch (e) {
+    log('ntfy failed:', e.message);
+    return false;
+  }
 }
 
 function updateSettings(p) {
@@ -514,6 +552,18 @@ function body(req) {
     });
   });
 }
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
+// Files are versioned by the card's modification time (index.html's __V__), so browsers pick up a new card at once.
+function sendFile(res, file) {
+  fs.readFile(file, (err, buf) => {
+    if (err) return sendJson(res, { error: 'not found' }, 404);
+    const ext = path.extname(file);
+    if (ext === '.html') buf = Buffer.from(buf.toString().replaceAll('__V__', String(Math.round(fs.statSync(path.join(__dirname, 'dist', 'ships-card.js')).mtimeMs))));
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...CORS });
+    res.end(buf);
+  });
+}
+
 function sendJson(res, obj, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS });
   res.end(JSON.stringify(obj));
@@ -631,10 +681,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { error: e.message }, 400);
     }
   }
-  if (p === '/api/settings' && req.method === 'GET') return sendJson(res, { ...settings, webhook: !!HA_WEBHOOK });
+  if (p === '/api/settings' && req.method === 'GET') return sendJson(res, { ...settings, webhook: !!HA_WEBHOOK, ntfy: !!NTFY_URL });
   if (p === '/api/settings' && (req.method === 'PUT' || req.method === 'POST')) {
     try {
-      return sendJson(res, { ...updateSettings(await body(req)), webhook: !!HA_WEBHOOK });
+      return sendJson(res, { ...updateSettings(await body(req)), webhook: !!HA_WEBHOOK, ntfy: !!NTFY_URL });
     } catch (e) {
       return sendJson(res, { error: e.message }, 400);
     }
@@ -644,11 +694,15 @@ const server = http.createServer(async (req, res) => {
     const t = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     return sendJson(res, await send({ kind: 'test', priority: 'normal', tag: 'ais-test', title: '🚢 Ship alerts are working', message: `Test from ais-monitor at ${t}.` }));
   }
-  if (p === '/' || p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/settings', '/api/alerts', '/api/test-alert'] });
+  // The standalone dashboard: the card without Home Assistant (web/), the card itself (dist/), optional settings.
+  if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendFile(res, path.join(__dirname, 'web', 'index.html'));
+  if (req.method === 'GET' && /^\/(web|dist)\/[\w.-]+$/.test(p)) return sendFile(res, path.join(__dirname, p));
+  if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, readJson(path.join(DATA_DIR, 'card.json'), {}));
+  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/settings', '/api/alerts', '/api/test-alert'] });
   sendJson(res, { error: 'not found' }, 404);
 });
 
-server.listen(PORT, () => log(`ais-monitor on :${PORT}, ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
+server.listen(PORT, () => log(`ais-monitor on :${PORT} (dashboard at /, alerts: ${[HA_WEBHOOK && 'HA webhook', NTFY_URL && 'ntfy'].filter(Boolean).join(' + ') || 'none set'}), ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
 connect();
 setInterval(save, WORLDWIDE ? 300_000 : 120_000);
 // Message rate over the last minute, for the status.

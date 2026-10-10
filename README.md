@@ -1,6 +1,7 @@
 # ais-monitor + Ships card
 
-**A Home Assistant card for marine traffic: the vessels closest to a place you choose, live from AIS.**
+**Marine traffic, live from AIS: the vessels closest to a place you choose. A Home Assistant card, or a dashboard on
+its own in any browser.**
 
 The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (aircraft), in the same style.
 
@@ -111,7 +112,8 @@ still there. Example:
 found by IMO number, then MMSI, then by name when the item is described as a ship, frigate and so on. Most cruise
 ships and warships have one; small craft usually don't, and alert without. Lookups are cached in `data/photos.json`.
 
-Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)), which sends
+Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)) and/or to ntfy (see
+[Without Home Assistant](#without-home-assistant)). The HA automation sends
 **persistent** notifications: they stay until you tap **Dismiss** (handled by [`alert-dismiss.yaml`](alert-dismiss.yaml));
 **Open** goes to the Ships view. A plain copy goes to a Wear OS watch, since Android doesn't pass persistent
 notifications on to the watch. Turn types on or off, set the circle and pick harbours in the
@@ -120,7 +122,8 @@ card's Alerts tab; there's a test button and the recent alerts.
 ## Requirements
 - A free **aisstream.io** API key: sign in at aisstream.io, then *API Keys*. A key allows only a limited number of
   simultaneous connections, so run one monitor per key.
-- **Home Assistant** for the card.
+- **Home Assistant** for the card, **or** nothing: the monitor serves the dashboard itself and can send alerts through
+  ntfy (see [Without Home Assistant](#without-home-assistant)).
 - For the monitor: **Node.js 22+** (for its built-in WebSocket) on any always-on machine, kept running with pm2 or
   systemd.
 
@@ -153,6 +156,22 @@ its Bridge tab opens; it isn't a resource of its own.
      - http://100.64.0.10:7110       # optional: over Tailscale/VPN, for away from home
    ```
 
+## Without Home Assistant
+The monitor serves the whole dashboard on its own port: open **`http://<monitor>:7110/`** in any browser. It's the same
+card, with the few things it normally takes from Home Assistant provided by a small page in `web/` (a card frame, the
+Material Design icons it uses, light and dark colours that follow your system setting). Everything works the same: map,
+vessels, vessel details, the **Bridge** view (the Cesium token is kept in that browser), wrecks and alerts. On a phone,
+use your browser's **Add to Home screen**: it opens full screen like an app.
+
+- **Card options**: put any of them in the monitor's `data/card.json`, e.g. `{"title": "Harbour", "n": 30}`. The page
+  points the card at the monitor itself, so `monitor` isn't needed.
+- **Phone alerts with [ntfy](https://ntfy.sh)** instead of (or as well as) Home Assistant: install the ntfy app,
+  subscribe to a topic with a long random name (anyone who knows it can read it), and set
+  `NTFY_URL=https://ntfy.sh/<your-topic>` in the monitor's `.env` (or your own ntfy server's URL, with `NTFY_TOKEN` if
+  it needs one). Arrivals and departures come with their title, priority, a tag icon and the ship's photo;
+  `DASHBOARD_URL=http://<monitor>:7110/` makes tapping one open the dashboard. Test it from the Alerts tab.
+- The JSON list of endpoints, formerly at `/`, is at `/api`.
+
 ## Configuration
 
 ### `.env` (monitor)
@@ -164,7 +183,10 @@ its Bridge tab opens; it isn't a resource of its own.
 | `AREA_LAT`, `AREA_LON`, `AREA_RADIUS_NM` | none, `100` | Optional wider area to receive as well |
 | `WORLDWIDE` | `false` | `true`: receive every vessel aisstream has (about 100–150 messages/s, ~6.5 GB/day download, ~100–200 MB RAM). Otherwise only the boxes around your locations |
 | `CLOSEST` | `50` | Default number of closest vessels |
-| `HA_WEBHOOK` | none | HA webhook URL for phone alerts. Empty: alerts are only logged |
+| `HA_WEBHOOK` | none | HA webhook URL for phone alerts |
+| `NTFY_URL` | none | ntfy topic URL for phone alerts without HA, e.g. `https://ntfy.sh/<long-random-topic>`. With neither this nor `HA_WEBHOOK`, alerts are only logged |
+| `NTFY_TOKEN` | none | Only for a protected ntfy server or topic |
+| `DASHBOARD_URL` | none | Opened when you tap an ntfy alert, e.g. `http://192.168.1.20:7110/` |
 | `ALERT_RADIUS_NM` | `6` | Starting harbour circle for alerts; then set in the card |
 | `PORT` | `7110` | |
 

@@ -988,7 +988,7 @@ class ShipsCard extends HTMLElement {
       <div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:0">
         <ha-icon icon="mdi:cellphone-message" style="color:var(--primary-color)"></ha-icon>
         <div style="flex:1;min-width:220px;font-size:.88em">Sticky phone notifications when a ship <b>enters a harbour</b>: it crosses into the circle around the harbour location after being seen outside it, so ships already in port never alert. Sent by ais-monitor through Home Assistant; tap one to open this card.
-          <div class="muted">${s.webhook ? `<span class="good">Webhook set</span>` : `<span class="bad">No HA_WEBHOOK in ais-monitor's .env: alerts are only logged</span>`}${this._aErr ? ` · <span class="bad">${esc(this._aErr)}</span>` : ""}</div></div>
+          <div class="muted">${s.webhook || s.ntfy ? `<span class="good">${[s.webhook && "HA webhook set", s.ntfy && "ntfy set"].filter(Boolean).join(" · ")}</span>` : `<span class="bad">No HA_WEBHOOK or NTFY_URL in ais-monitor's .env: alerts are only logged</span>`}${this._aErr ? ` · <span class="bad">${esc(this._aErr)}</span>` : ""}</div></div>
         <button class="btn" data-act="test"><ha-icon icon="mdi:send"></ha-icon>Send a test</button>
       </div>
       <div class="agrid">
