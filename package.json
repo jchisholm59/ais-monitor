@@ -1,6 +1,6 @@
 {
   "name": "ais-monitor",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "AIS ship tracking: vessels near your locations, harbour alerts (Home Assistant or ntfy), and the Ships dashboard on its own or in Home Assistant",
   "main": "server.js",
   "private": true,

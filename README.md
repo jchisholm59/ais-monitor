@@ -61,16 +61,19 @@ Two pieces:
   the areas you choose, and serves the closest ones to the card. Your key stays on your server; aisstream doesn't
   allow browser connections anyway.
 
-## Two ways to use it
-| | In Home Assistant | On its own |
-|---|---|---|
-| **Open it** | a dashboard view with the `custom:ships-card` card | **`http://<monitor>:7110/`** in any browser, or *Add to Home screen* on a phone |
-| **Install** | the card from HACS (or by hand) + the monitor | just the monitor (Node.js 22+, no dependencies) |
-| **Phone alerts** | HA companion app, through a webhook automation | the free [ntfy](https://ntfy.sh) app (or both at once) |
-| **3D view** token | pasted once, kept in your HA profile | pasted once per browser |
+## Three ways to use it
+| | In Home Assistant | As a Home Assistant add-on | On its own |
+|---|---|---|---|
+| **For** | any HA install | **HA OS** (or Supervised): everything on the HA box | anyone, no HA needed |
+| **Open it** | a dashboard view with the `custom:ships-card` card | **Ships** in HA's sidebar (and the card, if you like) | **`http://<monitor>:7110/`** in any browser, or *Add to Home screen* on a phone |
+| **Install** | the card from HACS (or by hand) + the monitor | add [`jchisholm59/ha-addons`](https://github.com/jchisholm59/ha-addons) to the Add-on Store, install **AIS Monitor** | the monitor: `git clone` + **`./install.sh`** (Node.js 22+, no dependencies) |
+| **Settings** | the monitor's `.env` | the add-on's Configuration tab | `.env` (asked for by `install.sh`) |
+| **Phone alerts** | HA companion app, through a webhook automation | the same | the free [ntfy](https://ntfy.sh) app (or both) |
+| **3D view** token | pasted once, kept in your HA profile | the same | pasted once per browser |
 
-Same card, same features either way: the monitor serves it with a small stand-in for the bits it normally takes from
-Home Assistant. Details in [Without Home Assistant](#without-home-assistant).
+Same card, same features every way: the monitor serves it with a small stand-in for the bits it normally takes from
+Home Assistant. Details in [Without Home Assistant](#without-home-assistant) and the
+[add-on's documentation](https://github.com/jchisholm59/ha-addons/blob/main/ais-monitor/DOCS.md).
 
 ## Classes
 From the AIS ship type each vessel broadcasts, plus its name:
@@ -141,6 +144,16 @@ card's Alerts tab; there's a test button and the recent alerts.
 ## Install
 
 ### 1. The monitor
+**Quick:** clone it and run the installer. It checks Node.js 22+, installs pm2 if needed, asks for the main settings
+(aisstream.io key, your locations, ntfy and/or HA webhook), writes them to `.env`, and starts the monitor under pm2 so it survives reboots:
+```bash
+git clone https://github.com/jchisholm59/ais-monitor.git
+cd ais-monitor && ./install.sh
+```
+Run `./install.sh` again any time to change those settings. **On HA OS**, use the add-on instead (see
+[Three ways to use it](#three-ways-to-use-it)).
+
+**By hand**, if you prefer:
 ```bash
 git clone https://github.com/jchisholm59/ais-monitor.git
 cd ais-monitor

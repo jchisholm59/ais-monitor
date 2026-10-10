@@ -48,7 +48,7 @@ const NTFY_URL = env('NTFY_URL');
 const NTFY_TOKEN = env('NTFY_TOKEN');
 const DASHBOARD_URL = env('DASHBOARD_URL'); // where tapping an ntfy alert goes, e.g. http://granite:7110/
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data'); // the HA add-on sets /data
 const VESSELS_FILE = path.join(DATA_DIR, 'vessels.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const ALERTS_FILE = path.join(DATA_DIR, 'alerts.json');
