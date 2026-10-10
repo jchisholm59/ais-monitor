@@ -61,6 +61,17 @@ Two pieces:
   the areas you choose, and serves the closest ones to the card. Your key stays on your server; aisstream doesn't
   allow browser connections anyway.
 
+## Two ways to use it
+| | In Home Assistant | On its own |
+|---|---|---|
+| **Open it** | a dashboard view with the `custom:ships-card` card | **`http://<monitor>:7110/`** in any browser, or *Add to Home screen* on a phone |
+| **Install** | the card from HACS (or by hand) + the monitor | just the monitor (Node.js 22+, no dependencies) |
+| **Phone alerts** | HA companion app, through a webhook automation | the free [ntfy](https://ntfy.sh) app (or both at once) |
+| **3D view** token | pasted once, kept in your HA profile | pasted once per browser |
+
+Same card, same features either way: the monitor serves it with a small stand-in for the bits it normally takes from
+Home Assistant. Details in [Without Home Assistant](#without-home-assistant).
+
 ## Classes
 From the AIS ship type each vessel broadcasts, plus its name:
 
@@ -157,6 +168,9 @@ its Bridge tab opens; it isn't a resource of its own.
    ```
 
 ## Without Home Assistant
+
+![The Ships dashboard served by ais-monitor on its own, in a browser with no Home Assistant: Halifax Harbour live, with the Dartmouth ferry, harbour tours, cruise ships alongside and the Halifax Explosion marker, dark theme](docs/standalone.jpg)
+
 The monitor serves the whole dashboard on its own port: open **`http://<monitor>:7110/`** in any browser. It's the same
 card, with the few things it normally takes from Home Assistant provided by a small page in `web/` (a card frame, the
 Material Design icons it uses, light and dark colours that follow your system setting). Everything works the same: map,
