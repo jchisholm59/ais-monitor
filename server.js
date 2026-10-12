@@ -25,12 +25,21 @@ const LOCATIONS = env('LOCATIONS')
   .map((m) => ({ name: m[1].trim(), lat: Number(m[2]), lon: Number(m[3]) }));
 if (!LOCATIONS.length && Number.isFinite(AREA.lat)) LOCATIONS.push({ name: env('AREA_NAME', 'Area centre'), lat: AREA.lat, lon: AREA.lon });
 // What to receive: a box around each location (LOCATION_RADIUS_NM), plus the wider AREA if set. One connection.
-// Locations edited from the card are saved in data/locations.json and replace the .env list from then on.
-const LOCATIONS_FILE = path.join(__dirname, 'data', 'locations.json');
-try {
-  const saved = JSON.parse(fs.readFileSync(LOCATIONS_FILE, 'utf8'));
-  if (Array.isArray(saved) && saved.length) LOCATIONS.splice(0, LOCATIONS.length, ...saved);
-} catch (e) {}
+// Locations edited from the card are saved in DATA_DIR/locations.json and replace the .env list from then on. (They
+// used to be saved in ./data whatever DATA_DIR said, which fails in the HA add-on: an older file there is still read
+// once if DATA_DIR has none yet.)
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data'); // the HA add-on sets /data/store
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const LOCATIONS_FILE = path.join(DATA_DIR, 'locations.json');
+for (const f of [LOCATIONS_FILE, path.join(__dirname, 'data', 'locations.json')]) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (Array.isArray(saved) && saved.length) {
+      LOCATIONS.splice(0, LOCATIONS.length, ...saved);
+      break;
+    }
+  } catch (e) {}
+}
 const LOCATION_RADIUS = num('LOCATION_RADIUS_NM', 40);
 // WORLDWIDE=true: receive every vessel aisstream has (~135 messages/s, ~6.5 GB/day); the locations still serve the
 // card's location list and the harbour alerts.
@@ -50,7 +59,6 @@ const DASHBOARD_URL = env('DASHBOARD_URL'); // where tapping an ntfy alert goes,
 const AUTH = require('./auth')(env('ADMIN_PASSWORD'), 'ais-monitor', env('ADMIN_TRUSTED_IPS')); // guests can look, only the owner can change
 const CESIUM_TOKEN = env('CESIUM_TOKEN'); // the Bridge tab's token for everyone using the dashboard (and guests)
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data'); // the HA add-on sets /data
 const VESSELS_FILE = path.join(DATA_DIR, 'vessels.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const ALERTS_FILE = path.join(DATA_DIR, 'alerts.json');
@@ -59,8 +67,6 @@ const RAD = Math.PI / 180;
 const KEEP_POSITION_MS = 3 * 3600_000; // drop vessels not heard for 3 h from the live list
 const KEEP_STATIC_MS = 30 * 86400_000; // remember names/types for 30 days
 const TRACK_MS = 2 * 3600_000;
-
-fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function log(...a) {
   console.log(new Date().toISOString(), ...a);

@@ -242,7 +242,7 @@ address out for 15 minutes. With no `ADMIN_PASSWORD`, nothing changes: no sign-i
 | Variable | Default | |
 |---|---|---|
 | `AISSTREAM_KEY` | none | Your aisstream.io key |
-| `LOCATIONS` | none | `Name:lat,lon;Name:lat,lon`. The starting places the card can list the closest vessels to; the first is the default. Once edited in the card they're kept in `data/locations.json` |
+| `LOCATIONS` | none | `Name:lat,lon;Name:lat,lon`. The starting places the card can list the closest vessels to; the first is the default. Once edited in the card they're kept in `locations.json` in `DATA_DIR` (default `./data`; the HA add-on's storage) |
 | `LOCATION_RADIUS_NM` | `40` | AIS is received for a box this size around each location |
 | `AREA_LAT`, `AREA_LON`, `AREA_RADIUS_NM` | none, `100` | Optional wider area to receive as well |
 | `WORLDWIDE` | `false` | `true`: receive every vessel aisstream has (about 100–150 messages/s, ~6.5 GB/day download, ~100–200 MB RAM). Otherwise only the boxes around your locations |
