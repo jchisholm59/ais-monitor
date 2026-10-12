@@ -22,7 +22,8 @@ converted to WebP, and compressed with meshopt (`gltf-transform optimize`). The 
 | `dist/ship-navy.glb` | Warships | [1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.](https://sketchfab.com/3d-models/11-low-poly-us-navy-ddg-51-uss-arleigh-burke-17be09c31c6047e4a5969b68c29eba03) | Yi Tsung Lee ([WTigerTw](https://sketchfab.com/WTigerTw)) |
 | `dist/ship-pilot.glb` | Pilot boats | [Pilot II](https://sketchfab.com/3d-models/pilot-ii-6ea031237b6b4382ab362790f8af4e66) | gogiart ([agt14032013](https://sketchfab.com/agt14032013)) |
 | `dist/ship-sail.glb` | Sailing boats | [Sailboat](https://sketchfab.com/3d-models/sailboat-76d0b1e24be14d2f9a524bfce3001aeb) | Sergei ([sergeif](https://sketchfab.com/sergeif)) |
-| `dist/ship-yacht.glb` | Motor yachts and pleasure craft | [Frickie's yacht](https://sketchfab.com/3d-models/frickies-yacht-1afd320662384bc0910f1778e9cb5eae) | dannzjs ([dannzjs](https://sketchfab.com/dannzjs)) |
+| `dist/ship-yacht.glb` | Motor yachts and pleasure craft (10 m and over) | [Frickie's yacht](https://sketchfab.com/3d-models/frickies-yacht-1afd320662384bc0910f1778e9cb5eae) | dannzjs ([dannzjs](https://sketchfab.com/dannzjs)) |
+| `dist/ship-runabout.glb` | Pleasure craft under 10 m | [bateau RIVA boat](https://sketchfab.com/3d-models/bateau-riva-boat-91f0f11ba42b4000abf788d54d73b9b1) | maxipub ([maxipub](https://sketchfab.com/maxipub)) |
 | `dist/ship-tug.glb` | Tugs, workboats, SAR and government vessels | [40ft Tugboat](https://sketchfab.com/3d-models/40ft-tugboat-0555e3e0c1be4080a2ba6731b801f8da) | Potater_King ([Potater_King](https://sketchfab.com/Potater_King)) |
 | `dist/ship-fishing.glb` | Fishing boats | [Fishing Ship game-ready asset](https://sketchfab.com/3d-models/fishing-ship-game-ready-asset-f791868a8b5f4996a49a3c8cd99336f6) | Dominik Biały ([crazyyuan](https://sketchfab.com/crazyyuan)) |
 

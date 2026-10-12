@@ -340,12 +340,25 @@ const SHIP_MODELS = {
   pilot: { title: "Pilot II", by: "agt14032013", uid: "6ea031237b6b4382ab362790f8af4e66" },
   sail: { title: "Sailboat", by: "sergeif", uid: "76d0b1e24be14d2f9a524bfce3001aeb" },
   yacht: { title: "Frickie's yacht", by: "dannzjs", uid: "1afd320662384bc0910f1778e9cb5eae" },
+  runabout: { title: "bateau RIVA boat", by: "maxipub", uid: "91f0f11ba42b4000abf788d54d73b9b1" },
   tug: { title: "40ft Tugboat", by: "Potater_King", uid: "0555e3e0c1be4080a2ba6731b801f8da" },
   fishing: { title: "Fishing Ship", by: "crazyyuan", uid: "f791868a8b5f4996a49a3c8cd99336f6" },
 };
 const MODELS_KEPT = 4;
+// The model for a vessel (a superyacht shrunk to a 6 m boat looks silly: small pleasure craft get a runabout).
 const modelKey = (kind, v, L) =>
-  kind === "tanker" && /\b(LNG|LPG|GAS)\b/.test(String(v.name || "").toUpperCase()) ? "lng" : kind === "ferry" && L < 60 ? "ferry_small" : kind;
+  kind === "yacht" && L < 10 ? "runabout"
+  : kind === "tanker" && /\b(LNG|LPG|GAS)\b/.test(String(v.name || "").toUpperCase()) ? "lng" : kind === "ferry" && L < 60 ? "ferry_small" : kind;
+
+// [length, beam] in metres from AIS, made sane: some transponders are set up with the two the wrong way round (PLAYD'EAU
+// sends 4 m long, 12 m wide), so a beam over the length is swapped, then capped at half the length (catamarans).
+function shipSize(v, kind) {
+  let L = fin(v.length) && v.length > 0 ? v.length : null, B = fin(v.beam) && v.beam > 0 ? v.beam : null;
+  if (L != null && B != null && B > L) [L, B] = [B, L];
+  L = clamp(L ?? KIND_LENGTH[kind], 4, 460);
+  B = clamp(Math.min(B ?? L / KIND_BEAM[kind], L / 2), 1.5, 70);
+  return [L, B];
+}
 
 // Fill light on the ship (Cesium lights models from the sun alone; the shaded side went near black).
 const FILL_SHADER = `void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
@@ -923,8 +936,7 @@ export class Bridge {
     this.chaseBb.show = false;
     this.$.mcredit.hidden = true;
     if (!show) return;
-    const kind = shipKind(v), L = clamp(fin(v.length) ? v.length : KIND_LENGTH[kind], 4, 460);
-    const B = clamp(fin(v.beam) ? v.beam : L / KIND_BEAM[kind], 1.5, 70);
+    const kind = shipKind(v), [L, B] = shipSize(v, kind);
     this.size = L;
     const hpr = new C.HeadingPitchRoll(C.Math.toRadians(this.heading - 90), 0, 0); // bow is +X: heading 0 = east
     const frame = C.Transforms.headingPitchRollToFixedFrame(this.anchor, hpr, C.Ellipsoid.WGS84, undefined, this._mm || (this._mm = new C.Matrix4()));
