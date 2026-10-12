@@ -46,8 +46,14 @@ Two pieces:
     ADS-B) it carries on at the reported speed and course and eases onto each new position, so the view glides
     rather than jumps. Other vessels show as dots in their class colours with names and speeds. A HUD with flag,
     name, type, length and destination, navigational status, a heading tape (with a yellow mark where it's actually
-    going), speed and course over ground and the heading. Drag to look around, wheel to zoom, **Chase view** to watch
-    the ship from astern, ◀ ▶ to hop between vessels. Ships don't report their pitch or roll, so the deck stays level.
+    going), speed and course over ground and the heading. Drag to look around, wheel to zoom, ◀ ▶ to hop between
+    vessels. Ships don't report their pitch or roll, so the deck stays level.
+    **Follow view** shows the ship itself in 3D, like the SkyAware card's Follow view (after FlightRadar24's 3D view):
+    built from its AIS type and its own reported length and beam (container ship or bulk carrier, tanker, cruise ship,
+    ferry, warship, tug / pilot boat / workboat, fishing boat, sailing boat, motor yacht), so a 290 m cruise ship and a
+    12 m sailboat are each to scale. Drag to circle it, wheel or pinch to zoom, **View** for Behind, Side, Front, Above
+    or Auto (a new angle every 12 s); the camera swings round astern of it as it turns. **Smooth** (on by default)
+    shows the vessel 20 s behind live, on its real path between position reports, instead of estimating ahead.
     Needs a free [Cesium ion](https://ion.cesium.com/) token: paste it into the tab once (it's saved to your Home
     Assistant profile; one already pasted into the [SkyAware card](https://github.com/jchisholm59/adsb-monitor)'s
     Cockpit tab is used too). Wants a decent GPU; fine on desktops and phones. It's the companion to that card's
