@@ -873,8 +873,14 @@ export class Bridge {
       this._surfBusy = true;
       this._surfaceAt(p.lat, p.lon).then((g) => {
         this._surfBusy = false;
-        if (g != null && g > -150 && g < 600) this._surface = g;
+        if (g != null && g > -150 && g < 600) this._surfaceT = g;
       });
+    }
+    // Eased onto each new sample (the 3D water isn't flat, so snapping to it jolts the vessel up and down); a big
+    // change (a new vessel, the first sample) is taken at once.
+    if (this._surfaceT != null) {
+      if (this._surface == null || Math.abs(this._surfaceT - this._surface) > 30) this._surface = this._surfaceT;
+      else this._surface += (this._surfaceT - this._surface) * (1 - Math.exp(-dt / 1.5));
     }
     const surf = this._surface ?? 0;
     const target = C.Cartesian3.fromDegrees(p.lon, p.lat, surf);
