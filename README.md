@@ -9,6 +9,12 @@ The companion to [adsb-monitor](https://github.com/jchisholm59/adsb-monitor) (ai
 
 ![Bridge tab: from Queen Mary 2's bridge at anchor in Halifax Harbour, looking at downtown Halifax and Georges Island, with Norwegian Breakaway and Sapphire Princess alongside and the harbour ferries and traffic labelled](docs/bridge.jpg)
 
+![Follow view, Side: Zuiderdam (285 m) alongside at Halifax's cruise terminal, drawn with the cruise-ship model stretched to her AIS length and beam, downtown Halifax behind](docs/follow-cruise.jpg)
+
+![Follow view, Above: the same berth from overhead, with Norwegian Jewel and Azamara Journey at the neighbouring piers in Google's 3D tiles](docs/follow-above.jpg)
+
+![Follow view, Side: the tug Atlantic Maple (32 m) in the harbour, an Oceanex ro-ro ship and the container terminal behind](docs/follow-tug.jpg)
+
 | Worldwide | Vessel details |
 |---|---|
 | ![Map zoomed out over Northern Europe, every vessel in view](docs/world.png) | ![Vessel tab: a cruise ship's flag, size, draught, destination and ETA](docs/vessel.png) |
@@ -49,11 +55,15 @@ Two pieces:
     going), speed and course over ground and the heading. Drag to look around, wheel to zoom, ◀ ▶ to hop between
     vessels. Ships don't report their pitch or roll, so the deck stays level.
     **Follow view** shows the ship itself in 3D, like the SkyAware card's Follow view (after FlightRadar24's 3D view):
-    built from its AIS type and its own reported length and beam (container ship or bulk carrier, tanker, cruise ship,
-    ferry, warship, tug / pilot boat / workboat, fishing boat, sailing boat, motor yacht), so a 290 m cruise ship and a
-    12 m sailboat are each to scale. Drag to circle it, wheel or pinch to zoom, **View** for Behind, Side, Front, Above
-    or Auto (a new angle every 12 s); the camera swings round astern of it as it turns. **Smooth** (on by default)
-    shows the vessel 20 s behind live, on its real path between position reports, instead of estimating ahead.
+    a realistic model for its AIS type (container ship, tanker, LNG carrier, bulk carrier, cruise ship, small or large
+    ferry, warship, tug, pilot boat, fishing boat, sailing boat, motor yacht), stretched to the vessel's own reported
+    length and beam, so a 290 m cruise ship and a 12 m sailboat are each to scale, with a wake when it's under way
+    (wash astern, the Kelvin wedge from the bow, a bow wave, all scaled to size and speed). Drag to circle it, wheel or
+    pinch to zoom, **View** for Behind, Side, Front, Above or Auto (a new angle every 12 s); the camera swings round
+    astern of it as it turns. **Smooth** (on by default) shows the vessel 20 s behind live, on its real path between
+    position reports, instead of estimating ahead. The models are CC BY 4.0 from Sketchfab ([CREDITS.md](CREDITS.md)),
+    shipped in `dist/` (about 10 MB in all, each downloaded only when that kind of ship is followed, then cached);
+    `ship_models: false` on the card uses simple ships drawn in code instead.
     Needs a free [Cesium ion](https://ion.cesium.com/) token: paste it into the tab once (it's saved to your Home
     Assistant profile; one already pasted into the [SkyAware card](https://github.com/jchisholm59/adsb-monitor)'s
     Cockpit tab is used too). Wants a decent GPU; fine on desktops and phones. It's the companion to that card's
@@ -257,6 +267,7 @@ address out for 15 minutes. With no `ADMIN_PASSWORD`, nothing changes: no sign-i
 | `refresh` | `10` | Seconds between updates |
 | `map_height` | fills the screen | px |
 | `cesium_token` | none | Cesium ion token for the Bridge tab. Easier: paste it into the tab (saved to your HA profile). Create it with only `assets:read` and restrict its Allowed URLs to your HA addresses: anyone who can open the dashboard can read it |
+| `ship_models` | `true` | Follow view: realistic 3D ship models (`dist/ship-*.glb`, see [CREDITS.md](CREDITS.md)); `false` draws simple ships in code instead, with nothing to download |
 | `monitor_token` | none | With `ADMIN_PASSWORD` on the monitor: easier to sign in on the Alerts tab (saved to your HA profile) |
 | `markers` | `[]` | Your own landmarks on the map: a list like `- {name: Sable Island, lat: 43.93, lon: -59.91, sub: Graveyard of the Atlantic, note: ...}`. `false` also hides the shipwrecks |
 

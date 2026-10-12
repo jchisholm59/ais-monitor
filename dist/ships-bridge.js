@@ -377,7 +377,8 @@ function tilesReason(e) {
   if (code === 429 || /too many/i.test(text)) return "Cesium ion is limiting requests for now";
   if (code === 404) return "the Google Photorealistic 3D Tiles asset isn't in this Cesium ion account (add it from the Asset Depot)";
   if (code === 401 || code === 403) return `Cesium ion refused it from ${location.origin} (check the token's Allowed URLs and its assets:read scope)`;
-  if (!code) return "couldn't reach Cesium ion";
+  // No status at all: the network, or a refusal without CORS headers (ion's rate limiting has been seen to answer so).
+  if (!code) return "couldn't reach Cesium ion, or it's limiting requests";
   return `Cesium ion answered HTTP ${code}${msg ? " (" + msg + ")" : ""}`;
 }
 
@@ -403,6 +404,7 @@ const STYLE = `
   .br .box span { font-size: .75em; opacity: .85; display: block; }
   .br .sog { left: 12px; } .br .cog { right: 12px; }
   .br .status { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 6px 12px; border-radius: 8px; background: rgba(0,0,0,.55); font-size: .9em; text-align: center; }
+  .br .status { white-space: pre-line; }
   .br .status:empty { display: none; }
   .br .nav { position: absolute; left: 50%; top: 50px; transform: translateX(-50%); padding: 2px 10px; border-radius: 6px; background: rgba(0,0,0,.35); font-size: .85em; white-space: nowrap; }
   .br .nav:empty { display: none; }
@@ -900,8 +902,10 @@ export class Bridge {
     }
     const age = (now - entry.recvMs) / 1000;
     const underWay = p.sog > 0.5 * KT;
-    this.$.status.textContent = !underWay ? this._note || "" : age > LOST_S ? "No recent position: holding the last one"
-      : age > NOTE_S ? `Last position ${age < 120 ? Math.round(age) + " s" : Math.round(age / 60) + " min"} ago${p.stale ? ": holding" : ": estimating"}` : this._note || "";
+    // The position's age (under way), and any note about the 3D world (tiles unavailable) on a second line.
+    const ageNote = !underWay ? "" : age > LOST_S ? "No recent position: holding the last one"
+      : age > NOTE_S ? `Last position ${age < 120 ? Math.round(age) + " s" : Math.round(age / 60) + " min"} ago${p.stale ? ": holding" : ": estimating"}` : "";
+    this.$.status.textContent = [ageNote, this._note].filter(Boolean).join("\n");
     if (now - (this._hudMs || 0) > 150) {
       this._hudMs = now;
       this._hud(v, p);
