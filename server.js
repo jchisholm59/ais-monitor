@@ -461,6 +461,40 @@ async function shipPhoto(v) {
   return url;
 }
 
+// CruiseMapper's page for a passenger ship (itineraries, schedules, deck plans), for the card's vessel details. Found
+// with the site's own ship search (its typeahead's JSON, which answers only with the X-Requested-With header and sends
+// no CORS headers, hence asked here and not by the browser), matched on the name without prefixes such as "ms"/"mv".
+// Cached in DATA_DIR: found pages 30 days, misses 1 day.
+const CRUISEMAPPER_FILE = path.join(DATA_DIR, 'cruisemapper.json');
+let cruisemapper = readJson(CRUISEMAPPER_FILE, {}); // NAME -> {url, t}
+const shipKey = (n) => String(n || '').toUpperCase().replace(/^(M\/?S|M\/?V|MSS|SS|RMS|MY|SY)\s+/, '').replace(/[^A-Z0-9]+/g, ' ').trim();
+async function cruiseMapperUrl(name) {
+  const key = shipKey(name);
+  if (key.length < 3) return '';
+  const c = cruisemapper[key];
+  if (c && Date.now() - c.t < (c.url ? 30 : 1) * 86400_000) return c.url;
+  let url = '';
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(`https://www.cruisemapper.com/ship/search.json?s=${encodeURIComponent(key.toLowerCase())}`, {
+      headers: { ...UA, 'X-Requested-With': 'XMLHttpRequest', Referer: 'https://www.cruisemapper.com/', Accept: 'application/json' },
+      signal: ctl.signal,
+    });
+    const list = r.ok ? await r.json() : [];
+    const hit = (Array.isArray(list) ? list : []).find((x) => shipKey(x.name) === key);
+    if (hit && /^https:\/\/www\.cruisemapper\.com\/ships\//.test(hit.url || '')) url = hit.url;
+  } catch (e) {
+    log('CruiseMapper lookup failed:', name, e.message);
+    return ''; // not cached: try again next time
+  } finally {
+    clearTimeout(to);
+  }
+  cruisemapper[key] = { url, t: Date.now() };
+  writeJson(CRUISEMAPPER_FILE, cruisemapper);
+  return url;
+}
+
 async function sendAlert(v, a, h, d, leaving = false) {
   const name = v.name || `MMSI ${v.mmsi}`, flag = flagOf(v.mmsi);
   const what = a.kind === 'warship' ? (a.k.navy ? `${a.k.navy} warship` : 'Warship') : a.kind === 'cruise' ? 'Cruise ship' : 'Coast Guard ship';
@@ -675,6 +709,7 @@ const server = http.createServer(async (req, res) => {
     hits.sort((a, b) => b[0] - a[0] || b[1] - a[1]);
     return sendJson(res, hits.slice(0, 20).map(([, , v]) => publicVessel(v, c)));
   }
+  if (p === '/api/cruisemapper') return cruiseMapperUrl(url.searchParams.get('name')).then((u) => sendJson(res, { url: u || null }));
   const m = /^\/api\/vessel\/(\d{9})$/.exec(p);
   if (m) {
     const v = vessels.get(Number(m[1]));
@@ -719,7 +754,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendFile(res, path.join(__dirname, 'web', 'index.html'));
   if (req.method === 'GET' && /^\/(web|dist)\/[\w.-]+$/.test(p)) return sendFile(res, path.join(__dirname, p));
   if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, { ...(CESIUM_TOKEN ? { cesium_token: CESIUM_TOKEN } : {}), ...readJson(path.join(DATA_DIR, 'card.json'), {}) });
-  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
+  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/cruisemapper?name=', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
   sendJson(res, { error: 'not found' }, 404);
 });
 

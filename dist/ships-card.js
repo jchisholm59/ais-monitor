@@ -1512,8 +1512,27 @@ class ShipsCard extends HTMLElement {
         <a class="btn" href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${v.mmsi}" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>MarineTraffic</a>
         <a class="btn" href="https://www.vesselfinder.com/vessels/details/${v.imo || v.mmsi}" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>VesselFinder</a>
         <a class="btn" href="https://www.myshiptracking.com/vessels/mmsi-${v.mmsi}" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>MyShipTracking</a>
+        <a class="btn" data-cm style="display:none" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>CruiseMapper</a>
       </div>`;
+    this._cruiseMapper(v, box.querySelector("[data-cm]"));
     this._spark(this.$("c-sog"), (v.track || []).filter((p) => p.sog != null).map((p) => ({ t: p.t / 1000, v: p.sog })));
+  }
+
+  // CruiseMapper (itineraries, schedules, deck plans) for passenger ships it knows: the monitor looks the name up (an
+  // older monitor without /api/cruisemapper just leaves the button hidden). Remembered per vessel.
+  async _cruiseMapper(v, a) {
+    if (!a || !(v.type >= 60 && v.type <= 69) || !v.name) return;
+    this._cm = this._cm || new Map();
+    let url = this._cm.get(v.mmsi);
+    if (url === undefined) {
+      try {
+        url = (await this._mon(`/api/cruisemapper?name=${encodeURIComponent(v.name)}`))?.url || null;
+      } catch (e) {
+        url = null;
+      }
+      this._cm.set(v.mmsi, url);
+    }
+    if (url && a.isConnected) (a.href = url), (a.style.display = "");
   }
 
   _spark(el, pts) {

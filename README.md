@@ -44,7 +44,8 @@ Two pieces:
     last seen. Filter chips by class; 📍 jumps to the vessel on the map.
   - **Vessel**: flag and country, name, class, type, size, draught, MMSI / IMO / callsign, speed, course and heading,
     distance and bearing from the location, the destination and ETA the crew reported, a speed chart, and links to
-    MarineTraffic, VesselFinder and MyShipTracking.
+    MarineTraffic, VesselFinder and MyShipTracking, plus CruiseMapper (itineraries, schedules, deck plans) for
+    cruise ships it knows: the monitor finds the page with CruiseMapper's own ship search and caches it.
   - **Bridge**: stand on the selected vessel's bridge. Its view over Google's photorealistic 3D world (CesiumJS,
     loaded only when you open the tab), driven by the live AIS: the camera sits at the ship's reported position, at a
     bridge height scaled from its length (from ~4 m on a small boat to ~45 m on the largest cruise ships), looking
