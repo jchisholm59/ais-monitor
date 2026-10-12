@@ -554,14 +554,15 @@ function body(req) {
     });
   });
 }
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.glb': 'model/gltf-binary' };
 // Files are versioned by the card's modification time (index.html's __V__), so browsers pick up a new card at once.
 function sendFile(res, file) {
   fs.readFile(file, (err, buf) => {
     if (err) return sendJson(res, { error: 'not found' }, 404);
     const ext = path.extname(file);
     if (ext === '.html') buf = Buffer.from(buf.toString().replaceAll('__V__', String(Math.round(fs.statSync(path.join(__dirname, 'dist', 'ships-card.js')).mtimeMs))));
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...CORS });
+    // Ship models (dist/ship-*.glb, up to ~2 MB) are cached for a week: a changed model gets a new file name.
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.glb' ? 'public, max-age=604800' : 'no-cache', ...CORS });
     res.end(buf);
   });
 }

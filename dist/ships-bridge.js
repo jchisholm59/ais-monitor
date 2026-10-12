@@ -324,6 +324,29 @@ function wakeGlb(L, B, kn) {
   return packGlb(json, parts, off);
 }
 
+// Realistic ship models, one per kind: CC-BY models from Sketchfab (authors below, and in CREDITS.md), turned bow
+// +X, centred, scaled to length 1 and beam 1 (height in proportion to the length), waterline at y = 0, then simplified
+// and compressed (meshopt, WebP textures). They sit next to this file as ship-<key>.glb, and each is stretched to the
+// vessel's own AIS length and beam. The built-in ship (shipGlb) stands in while one downloads, or if it can't.
+const SHIP_MODELS = {
+  container: { title: "Container Ship", by: "RM02", uid: "aaa41cca946b4a08bc08cf692b7757be" },
+  tanker: { title: "Tanker Ship", by: "ArtBlender", uid: "96ebf61af42b4062ae98a6ad848e1a25" },
+  lng: { title: "LNG Ship", by: "ArtBlender", uid: "fa335b96450d4344863bbf5d912a0288" },
+  bulk: { title: "Bulk Carrier \u2013 TFCC Heritage", by: "Gwenael_Herve", uid: "e78b4f1fdc094a63bb7d6c24d8e7e7dd" },
+  cruise: { title: "Cruise Ship", by: "farhad.Guli", uid: "bb782326932e4c179e34f3d6c8e36b86" },
+  ferry_small: { title: "Sydney Emerald-Class ferry", by: "TheOminousDuck", uid: "8b39b8957231420d919b60febb627bd5" },
+  ferry: { title: "Hailuoto car ferry", by: "snowsoup", uid: "44eaf2dd56b74e76a310d2e532957dbe" },
+  navy: { title: "USS Arleigh Burke (DDG-51)", by: "WTigerTw", uid: "17be09c31c6047e4a5969b68c29eba03" },
+  pilot: { title: "Pilot II", by: "agt14032013", uid: "6ea031237b6b4382ab362790f8af4e66" },
+  sail: { title: "Sailboat", by: "sergeif", uid: "76d0b1e24be14d2f9a524bfce3001aeb" },
+  yacht: { title: "Frickie's yacht", by: "dannzjs", uid: "1afd320662384bc0910f1778e9cb5eae" },
+  tug: { title: "40ft Tugboat", by: "Potater_King", uid: "0555e3e0c1be4080a2ba6731b801f8da" },
+  fishing: { title: "Fishing Ship", by: "crazyyuan", uid: "f791868a8b5f4996a49a3c8cd99336f6" },
+};
+const MODELS_KEPT = 4;
+const modelKey = (kind, v, L) =>
+  kind === "tanker" && /\b(LNG|LPG|GAS)\b/.test(String(v.name || "").toUpperCase()) ? "lng" : kind === "ferry" && L < 60 ? "ferry_small" : kind;
+
 // Fill light on the ship (Cesium lights models from the sun alone; the shaded side went near black).
 const FILL_SHADER = `void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   material.emissive += material.diffuse * 0.3;
@@ -366,6 +389,8 @@ const STYLE = `
   .br .credits img { max-height: 16px; vertical-align: middle; }
   .br .credits a { color: inherit; }
   .br .credits .cesium-credit-lightbox-overlay { position: fixed; }
+  .br .mcredit { position: absolute; right: 12px; bottom: 50px; font-size: 10px; opacity: .7; }
+  .br .mcredit a { color: inherit; }
   .br .hud { position: absolute; inset: 0; pointer-events: none; font-family: ui-monospace, "JetBrainsMono Nerd Font", monospace; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,.6); }
   .br .hud * { pointer-events: none; }
   .br .hud .btns, .br .hud .btns *, .br .credits * { pointer-events: auto; }
@@ -399,7 +424,7 @@ const STYLE = `
 
 export class Bridge {
   // opts: { token, saveToken(token) -> Promise, color(v) -> css colour, onPick(mmsi), onExit(),
-  //         label(v) -> {nm, sub}, status(v) -> navigational status text }
+  //         label(v) -> {nm, sub}, status(v) -> navigational status text, models (false: built-in ships only) }
   constructor(container, opts) {
     this.el = container;
     this.opts = opts;
@@ -485,12 +510,13 @@ export class Bridge {
           </div>
         </div>
         <div class="credits"></div>
+        <div class="mcredit" hidden></div>
         <div class="msg">Loading the 3D world…</div>
       </div>`;
     const q = (s) => this.el.querySelector(s);
     this.$ = { scene: q(".scene"), nm: q(".ident .nm"), sub: q(".ident .sub"), tape: q(".tape"), nav: q(".nav"), sog: q(".sog b"),
       cog: q(".cog b"), hdgv: q(".cog .hdgv"), status: q(".status"), msg: q(".msg"), credits: q(".credits"), mode: q('[data-br="mode"]'),
-      viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]') };
+      mcredit: q(".mcredit"), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]') };
     this._on(this.el, "click", (e) => {
       const b = e.target.closest("[data-br]");
       if (!b) return;
@@ -573,6 +599,7 @@ export class Bridge {
     this.bbs = scene.primitives.add(new C.BillboardCollection({ scene }));
     this.chaseBb = this.bbs.add({ image: STERN_SVG, width: 110, height: 64, show: false, verticalOrigin: C.VerticalOrigin.BOTTOM });
     this.marks = new Map();
+    this._models = new Map(); // realistic model key -> { model, used }
     this.$.msg.textContent = "";
     this._initInput();
     this._last = performance.now();
@@ -789,7 +816,7 @@ export class Bridge {
     if (!scene) return null;
     try {
       const pos = [C.Cartographic.fromDegrees(lon, lat)];
-      const exclude = [this.points, this.labels, this.bbs, this.model, this.wake].filter(Boolean); // not the ship itself
+      const exclude = [this.points, this.labels, this.bbs, this.model, this.wake, ...[...(this._models?.values() || [])].map((e) => e.model)].filter(Boolean); // not the ship itself
       const out = this.tiles ? await scene.sampleHeightMostDetailed(pos, exclude) : await C.sampleTerrainMostDetailed(scene.terrainProvider, pos);
       const h = out?.[0]?.height;
       return fin(h) ? h : null;
@@ -809,6 +836,7 @@ export class Bridge {
       if (this.chaseBb) this.chaseBb.show = false;
       if (this.model) this.model.show = false;
       if (this.wake) this.wake.show = false;
+      for (const e of this._models?.values() || []) if (e.model) e.model.show = false;
       this.$.status.textContent = this.sel ? "Vessel out of range" : "Pick a vessel on the map, or use ◀ ▶";
       this._hud(null);
       return;
@@ -887,16 +915,35 @@ export class Bridge {
     const C = this.C;
     if (this.model) this.model.show = false;
     if (this.wake) this.wake.show = false;
+    for (const e of this._models.values()) if (e.model) e.model.show = false;
     this.chaseBb.show = false;
+    this.$.mcredit.hidden = true;
     if (!show) return;
     const kind = shipKind(v), L = clamp(fin(v.length) ? v.length : KIND_LENGTH[kind], 4, 460);
     const B = clamp(fin(v.beam) ? v.beam : L / KIND_BEAM[kind], 1.5, 70);
-    const key = `${v.mmsi}|${kind}|${L}|${B}`;
-    if (key !== this._shipKey && !this._shipBusy) this._loadShip(key, kind, L, B, v.mmsi);
     this.size = L;
-    if (this.model) {
-      const hpr = new C.HeadingPitchRoll(C.Math.toRadians(this.heading - 90), 0, 0); // bow is +X: heading 0 = east
-      this.model.modelMatrix = C.Transforms.headingPitchRollToFixedFrame(this.anchor, hpr, C.Ellipsoid.WGS84, undefined, this._mm || (this._mm = new C.Matrix4()));
+    const hpr = new C.HeadingPitchRoll(C.Math.toRadians(this.heading - 90), 0, 0); // bow is +X: heading 0 = east
+    const frame = C.Transforms.headingPitchRollToFixedFrame(this.anchor, hpr, C.Ellipsoid.WGS84, undefined, this._mm || (this._mm = new C.Matrix4()));
+    // The realistic model for this kind, stretched to the vessel (model x = length, z = beam, y = height ~ length).
+    const mk = this.opts.models === false ? null : modelKey(kind, v, L);
+    const real = mk && this._model(mk);
+    if (real?.model) {
+      real.model.modelMatrix = C.Matrix4.multiplyByScale(frame, new C.Cartesian3(L, B, L), new C.Matrix4());
+      real.model.show = true; // also while it loads (a hidden model isn't loaded)
+    }
+    const shown = real?.model?.ready;
+    if (shown) {
+      const m = SHIP_MODELS[mk];
+      if (this._creditFor !== mk) {
+        this._creditFor = mk;
+        this.$.mcredit.innerHTML = `3D ship: <a href="https://sketchfab.com/3d-models/${m.uid}" target="_blank" rel="noreferrer">${esc(m.title)}</a> by ${esc(m.by)} (CC BY 4.0, simplified)`;
+      }
+      this.$.mcredit.hidden = false;
+    }
+    const key = `${v.mmsi}|${kind}|${L}|${B}`;
+    if (!shown && key !== this._shipKey && !this._shipBusy) this._loadShip(key, kind, L, B, v.mmsi);
+    if (this.model && !shown) {
+      this.model.modelMatrix = frame; // copied by the setter
       this.model.show = true; // also while it loads (a hidden model isn't loaded)
     }
     // Wake when under way: rebuilt per knot of speed; drawn 0.3 m up so the water surface doesn't cover it.
@@ -905,19 +952,42 @@ export class Bridge {
       const wkey = `${L}|${B}|${Math.round(kn)}`;
       if (wkey !== this._wakeKey && !this._wakeBusy) this._loadWake(wkey, L, B, Math.round(kn));
       if (this.wake) {
-        const lift = C.Matrix4.multiplyByPoint(this.model?.modelMatrix || C.Transforms.eastNorthUpToFixedFrame(this.anchor), new C.Cartesian3(0, 0, 0.3), new C.Cartesian3());
-        const hpr = new C.HeadingPitchRoll(C.Math.toRadians(this.heading - 90), 0, 0);
+        const lift = C.Matrix4.multiplyByPoint(frame, new C.Cartesian3(0, 0, 0.3), new C.Cartesian3());
         this.wake.modelMatrix = C.Transforms.headingPitchRollToFixedFrame(lift, hpr, C.Ellipsoid.WGS84, undefined, this._wm || (this._wm = new C.Matrix4()));
         this.wake.show = true;
       }
     }
-    if (!this.model?.ready) {
+    if (!shown && !this.model?.ready) {
       this.chaseBb.show = true;
       this.chaseBb.position = this.anchor;
       const s = clamp(L / 100, 0.6, 1.6);
       this.chaseBb.width = 110 * s;
       this.chaseBb.height = 64 * s;
     }
+  }
+
+  // The realistic model `key` as { model } (null until downloaded); starts loading it the first time (a failure isn't
+  // retried). The least recently used are dropped beyond MODELS_KEPT.
+  _model(key) {
+    let e = this._models.get(key);
+    if (!e) {
+      e = { model: null };
+      this._models.set(key, e);
+      const url = new URL(`./ship-${key}.glb`, import.meta.url).href;
+      this.C.Model.fromGltfAsync({ url, forwardAxis: this.C.Axis.X, minimumPixelSize: 36, maximumScale: 20000,
+        customShader: new this.C.CustomShader({ lightingModel: this.C.LightingModel.PBR, fragmentShaderText: FILL_SHADER }) }).then((m) => {
+        if (this.destroyed || !this.w || this._models.get(key) !== e) return void m.destroy(); // gone meanwhile
+        e.model = this.w.scene.primitives.add(m);
+      }, (err) => console.warn(`ships-bridge: model ${key}`, err));
+    }
+    e.used = performance.now();
+    if (this._models.size > MODELS_KEPT) {
+      const [old] = [...this._models.entries()].filter(([k]) => k !== key).sort((p, q) => p[1].used - q[1].used)[0];
+      const o = this._models.get(old);
+      if (o.model) this.w.scene.primitives.remove(o.model); // destroys it
+      this._models.delete(old);
+    }
+    return e;
   }
 
   async _loadWake(key, L, B, kn) {

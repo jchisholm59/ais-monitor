@@ -16,6 +16,7 @@ const DEFAULTS = {
   markers: [], // your own landmarks on the map: a list of {name, lat, lon, sub, note}; false hides the shipwrecks too
   cesium_token: "", // optional: Cesium ion token for the Bridge tab (or paste it into the tab; saved to your HA profile)
   monitor_token: "", // ais-monitor with ADMIN_PASSWORD: its admin token (or sign in on the Alerts tab; saved to your HA profile)
+  ship_models: true, // Bridge tab's Follow view: realistic 3D ships (ship-*.glb next to this file, CREDITS.md); false = simple built-in ones
 };
 
 // Major shipwrecks and naval losses, drawn on the map (filter: Wrecks). Positions from public sources; `approx` where
@@ -826,6 +827,7 @@ class ShipsCard extends HTMLElement {
           sub: [v.cls === "mil" && v.navy ? v.navy : v.sub || v.typeLabel, v.length ? `${v.length} m` : "", v.dest ? `→ ${v.dest}` : ""].filter(Boolean).join(" · "),
         }),
         status: (v) => STATUS[v.status] || "",
+        models: this._config.ship_models !== false,
       });
       this._bridge.setData(this._bridgeList(), this._sel);
       this._bridge.start();
