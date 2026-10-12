@@ -258,8 +258,13 @@ function shipGlb(kind, L, B, seed) {
     ],
     bufferViews: views, buffers: [{ byteLength: off }],
   };
+  return packGlb(json, parts, off);
+}
+
+// A binary glTF from its JSON and the binary parts (laid out in order, `size` bytes).
+function packGlb(json, parts, size) {
   const js = new TextEncoder().encode(JSON.stringify(json));
-  const jl = Math.ceil(js.length / 4) * 4, bl = Math.ceil(off / 4) * 4;
+  const jl = Math.ceil(js.length / 4) * 4, bl = Math.ceil(size / 4) * 4;
   const glb = new Uint8Array(12 + 8 + jl + 8 + bl), dv = new DataView(glb.buffer);
   dv.setUint32(0, 0x46546c67, true), dv.setUint32(4, 2, true), dv.setUint32(8, glb.length, true);
   dv.setUint32(12, jl, true), dv.setUint32(16, 0x4e4f534a, true);
@@ -269,6 +274,56 @@ function shipGlb(kind, L, B, seed) {
   for (const p of parts) glb.set(new Uint8Array(p.buffer), o), (o += p.byteLength);
   return glb;
 }
+// The wake of a ship of length L and beam B at `kn` knots, as a translucent glTF in the ship's frame (bow +X,
+// waterline y = 0): the churned wash astern, widening and fading; the two arms of the Kelvin wedge, which spread from
+// the bow at 19.5° to the track whatever the speed; and a bow wave. Longer and stronger the faster it goes.
+function wakeGlb(L, B, kn) {
+  const pos = [], col = [];
+  const strength = clamp(kn / 14, 0.25, 1), len = L * clamp(kn / 5, 0.6, 4);
+  // A strip along a centre line from (x0, z0) in direction (dx, dz): width w0 -> w1, alpha a0 -> 0 along it, and
+  // feathered across it (opaque on the centre line, clear at the edges) so it reads as foam, not a band.
+  const strip = (x0, z0, dx, dz, length, w0, w1, a0, n = 14) => {
+    const nx = -dz, nz = dx; // across
+    const at = (t, side) => {
+      const w = ((w0 + (w1 - w0) * t) / 2) * side, x = x0 + dx * length * t, z = z0 + dz * length * t;
+      return [x + nx * w, 0, z + nz * w, side ? 0 : a0 * (1 - t) ** 1.4];
+    };
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n, t1 = (i + 1) / n;
+      for (const [s0, s1] of [[-1, 0], [0, 1]]) {
+        const p0 = at(t0, s0), q0 = at(t0, s1), p1 = at(t1, s0), q1 = at(t1, s1);
+        for (const v of [p0, q0, p1, q0, q1, p1]) pos.push(v[0], v[1], v[2]), col.push(1, 1, 1, v[3]);
+      }
+    }
+  };
+  const stern = -L / 2, bow = L * 0.46, k = Math.tan((19.5 * Math.PI) / 180);
+  strip(stern + 1, 0, -1, 0, len, B * 1.1, B * 3, 0.9 * strength); // wash astern
+  for (const s of [1, -1]) {
+    const d = Math.hypot(1, k);
+    strip(bow - L * 0.05, (s * B) / 2.4, -1 / d, (s * k) / d, len * 1.1, L * 0.03 + 1, L * 0.12 + 4, 0.38 * strength); // Kelvin arms
+    strip(bow + L * 0.02, (s * B) / 3.5, -1 / Math.hypot(1, 0.7), (s * 0.7) / Math.hypot(1, 0.7), L * 0.18 + 4, 2, L * 0.07 + 3, 0.8 * strength, 5); // bow wave
+  }
+  const n = pos.length / 3, f32 = (a) => new Float32Array(a);
+  const parts = [f32(pos), f32(Array.from({ length: n }, () => [0, 1, 0]).flat()), f32(col)];
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i++) (mn[i % 3] = Math.min(mn[i % 3], pos[i])), (mx[i % 3] = Math.max(mx[i % 3], pos[i]));
+  let off = 0;
+  const views = parts.map((p) => ({ buffer: 0, byteOffset: (off += p.byteLength) - p.byteLength, byteLength: p.byteLength }));
+  const json = {
+    asset: { version: "2.0", generator: "ships-bridge" }, extensionsUsed: ["KHR_materials_unlit"],
+    scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, COLOR_0: 2 }, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.95, 0.97, 1, 1] }, alphaMode: "BLEND", doubleSided: true, extensions: { KHR_materials_unlit: {} } }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: n, type: "VEC3", min: mn, max: mx },
+      { bufferView: 1, componentType: 5126, count: n, type: "VEC3" },
+      { bufferView: 2, componentType: 5126, count: n, type: "VEC4" },
+    ],
+    bufferViews: views, buffers: [{ byteLength: off }],
+  };
+  return packGlb(json, parts, off);
+}
+
 // Fill light on the ship (Cesium lights models from the sun alone; the shaded side went near black).
 const FILL_SHADER = `void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   material.emissive += material.diffuse * 0.3;
@@ -734,7 +789,7 @@ export class Bridge {
     if (!scene) return null;
     try {
       const pos = [C.Cartographic.fromDegrees(lon, lat)];
-      const exclude = [this.points, this.labels, this.bbs, this.model].filter(Boolean); // not the ship itself
+      const exclude = [this.points, this.labels, this.bbs, this.model, this.wake].filter(Boolean); // not the ship itself
       const out = this.tiles ? await scene.sampleHeightMostDetailed(pos, exclude) : await C.sampleTerrainMostDetailed(scene.terrainProvider, pos);
       const h = out?.[0]?.height;
       return fin(h) ? h : null;
@@ -753,6 +808,7 @@ export class Bridge {
     if (!entry) {
       if (this.chaseBb) this.chaseBb.show = false;
       if (this.model) this.model.show = false;
+      if (this.wake) this.wake.show = false;
       this.$.status.textContent = this.sel ? "Vessel out of range" : "Pick a vessel on the map, or use ◀ ▶";
       this._hud(null);
       return;
@@ -830,6 +886,7 @@ export class Bridge {
   _placeShip(v, show) {
     const C = this.C;
     if (this.model) this.model.show = false;
+    if (this.wake) this.wake.show = false;
     this.chaseBb.show = false;
     if (!show) return;
     const kind = shipKind(v), L = clamp(fin(v.length) ? v.length : KIND_LENGTH[kind], 4, 460);
@@ -842,12 +899,43 @@ export class Bridge {
       this.model.modelMatrix = C.Transforms.headingPitchRollToFixedFrame(this.anchor, hpr, C.Ellipsoid.WGS84, undefined, this._mm || (this._mm = new C.Matrix4()));
       this.model.show = true; // also while it loads (a hidden model isn't loaded)
     }
+    // Wake when under way: rebuilt per knot of speed; drawn 0.3 m up so the water surface doesn't cover it.
+    const kn = fin(v.sog) ? v.sog : 0;
+    if (kn >= 0.8) {
+      const wkey = `${L}|${B}|${Math.round(kn)}`;
+      if (wkey !== this._wakeKey && !this._wakeBusy) this._loadWake(wkey, L, B, Math.round(kn));
+      if (this.wake) {
+        const lift = C.Matrix4.multiplyByPoint(this.model?.modelMatrix || C.Transforms.eastNorthUpToFixedFrame(this.anchor), new C.Cartesian3(0, 0, 0.3), new C.Cartesian3());
+        const hpr = new C.HeadingPitchRoll(C.Math.toRadians(this.heading - 90), 0, 0);
+        this.wake.modelMatrix = C.Transforms.headingPitchRollToFixedFrame(lift, hpr, C.Ellipsoid.WGS84, undefined, this._wm || (this._wm = new C.Matrix4()));
+        this.wake.show = true;
+      }
+    }
     if (!this.model?.ready) {
       this.chaseBb.show = true;
       this.chaseBb.position = this.anchor;
       const s = clamp(L / 100, 0.6, 1.6);
       this.chaseBb.width = 110 * s;
       this.chaseBb.height = 64 * s;
+    }
+  }
+
+  async _loadWake(key, L, B, kn) {
+    const C = this.C;
+    this._wakeBusy = true;
+    const url = URL.createObjectURL(new Blob([wakeGlb(L, B, kn)], { type: "model/gltf-binary" }));
+    try {
+      const m = await C.Model.fromGltfAsync({ url, forwardAxis: C.Axis.X, show: false });
+      if (this.destroyed || !this.w) return void m.destroy();
+      this.w.scene.primitives.add(m);
+      if (this.wake) this.w.scene.primitives.remove(this.wake);
+      this.wake = m;
+    } catch (e) {
+      console.warn("ships-bridge: wake", e);
+    } finally {
+      this._wakeKey = key; // a failure isn't retried at this speed
+      URL.revokeObjectURL(url);
+      this._wakeBusy = false;
     }
   }
 
