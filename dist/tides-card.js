@@ -562,7 +562,9 @@ class TidesCard extends HTMLElement {
     for (const e of evs) {
       const x = X(e.t), y = Y(e.v);
       s += `<circle cx="${x}" cy="${y}" r="4" fill="${e.high ? "var(--td-high)" : "var(--td-low)"}" stroke="var(--secondary-background-color)" stroke-width="1.5"/>`;
-      if (!week) s += `<text x="${x}" y="${e.high ? y - 9 : y + 16}" text-anchor="middle" style="font-size:11px;fill:var(--primary-text-color)">${hm(e.t)} · ${this._u(e.v)}</text>`;
+      // Labels near an edge are anchored inwards, so they aren't cut off.
+      const anchor = x > W - R - 60 ? "end" : x < L + 60 ? "start" : "middle";
+      if (!week) s += `<text x="${x}" y="${e.high ? y - 9 : y + 16}" text-anchor="${anchor}" style="font-size:11px;fill:var(--primary-text-color)">${hm(e.t)} · ${this._u(e.v)}</text>`;
     }
     // Now.
     const now = Date.now();

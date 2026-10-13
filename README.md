@@ -119,6 +119,9 @@ days, so the picture fills in over the first hours and stays filled. Many small 
 send a type.
 
 ## Tides
+
+![Tides tab at Halifax Harbour: 0.29 m just after the 5:00 PM low and rising toward the 10:51 PM high, today's 1.53 m range, sunrise and sunset, a waxing crescent moon with spring tides, and today's curve with its highs and lows](docs/tides.jpg)
+
 A **Tides** tab with the tides at your locations, following the location picker: the height now with a level bar, rising
 or falling, the next high and low, a 24-hour curve (touch to read it) with daylight shaded, the week's highs and lows,
 the moon and spring or neap tides, in each place's local time. Sources, best first for each location:
