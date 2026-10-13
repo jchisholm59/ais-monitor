@@ -202,7 +202,7 @@ module.exports = function createTides({ dataDir, isAdmin, locations, worldtidesK
     else if (f.length >= 3) {
       try {
         const g = await getJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q.trim())}&count=4&language=en&format=json`);
-        for (const x of g.results || []) out.push({ id: `geo:${x.latitude.toFixed(4)},${x.longitude.toFixed(4)}`, code: 'model', name: [...new Set([x.name, x.admin1, x.country].filter(Boolean))].join(', '), // no "Taipei, Taiwan, Taiwan" alt: 'tide model at this place (best on open coast)', lat: x.latitude, lon: x.longitude, gauge: false, source: 'model', km: near ? Math.round(km(lat, lon, x.latitude, x.longitude)) : null });
+        for (const x of g.results || []) out.push({ id: `geo:${x.latitude.toFixed(4)},${x.longitude.toFixed(4)}`, code: 'model', name: [...new Set([x.name, x.admin1, x.country].filter(Boolean))].join(', '), alt: 'tide model at this place (best on open coast)', lat: x.latitude, lon: x.longitude, gauge: false, source: 'model', km: near ? Math.round(km(lat, lon, x.latitude, x.longitude)) : null });
       } catch (e) {}
     }
     return out;
