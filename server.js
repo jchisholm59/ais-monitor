@@ -664,12 +664,22 @@ function inView(url, c, live) {
   return { total: inside.length, shown: pick.length, vessels: pick.map((v) => publicVessel(v, c)) };
 }
 
+// Tides (Canadian Hydrographic Service), for the Tides tab: the nearest station to each location by default.
+const tidesApi = require('./tides')({ dataDir: DATA_DIR, isAdmin: (req) => AUTH.isAdmin(req), locations: () => LOCATIONS, worldtidesKey: env('WORLDTIDES_KEY') });
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   if (req.method === 'OPTIONS') {
     res.writeHead(204, CORS);
     return res.end();
+  }
+  if (p.startsWith('/api/tides')) {
+    try {
+      if (await tidesApi(req, res, url, sendJson, body)) return;
+    } catch (e) {
+      return sendJson(res, { error: e.message }, 502);
+    }
   }
   const center = () => {
     const lat = Number(url.searchParams.get('lat')), lon = Number(url.searchParams.get('lon'));
@@ -754,7 +764,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendFile(res, path.join(__dirname, 'web', 'index.html'));
   if (req.method === 'GET' && /^\/(web|dist)\/[\w.-]+$/.test(p)) return sendFile(res, path.join(__dirname, p));
   if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, { ...(CESIUM_TOKEN ? { cesium_token: CESIUM_TOKEN } : {}), ...readJson(path.join(DATA_DIR, 'card.json'), {}) });
-  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/cruisemapper?name=', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
+  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/cruisemapper?name=', '/api/tides?station=', '/api/tides/stations?q=&lat=&lon=', '/api/tides/defaults', '/api/tides/saved', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
   sendJson(res, { error: 'not found' }, 404);
 });
 

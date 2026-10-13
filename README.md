@@ -118,6 +118,20 @@ so a newly seen vessel shows as "Waiting for details" for a while. The monitor r
 days, so the picture fills in over the first hours and stays filled. Many small craft (class B transponders) never
 send a type.
 
+## Tides
+A **Tides** tab with the tides at your locations, following the location picker: the height now with a level bar, rising
+or falling, the next high and low, a 24-hour curve (touch to read it) with daylight shaded, the week's highs and lows,
+the moon and spring or neap tides, in each place's local time. Sources, best first for each location:
+- **Canada**: Canadian Hydrographic Service stations (free), including a gauge's observed level where there is one.
+- **US**: NOAA tide prediction stations (free).
+- **Anywhere else**: a tide model at the location: [WorldTides](https://www.worldtides.info) with `WORLDTIDES_KEY` set (paid,
+  good near coasts), otherwise [Open-Meteo](https://open-meteo.com/en/docs/marine-weather-api) (free; a coarse global
+  model, so only roughly right in bays and harbours, and nothing for a point on land).
+
+By default each location gets the nearest CHS or NOAA station within 40 km, else the model. The pencil edits the list:
+search stations by name or code, places by name, or type `lat, lon`. The monitor fetches and caches all of this (CHS's
+certificate is from Entrust, which browsers no longer trust, so the card can't call it directly).
+
 ## Harbour alerts
 A vessel "enters a harbour" when it crosses into a circle (6 nm by default) around one of your locations, having been
 seen outside it within the last 6 hours, so ships already in port when the monitor starts never alert. The alert

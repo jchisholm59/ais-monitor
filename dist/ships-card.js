@@ -1,9 +1,11 @@
 // Ships card for Home Assistant (custom:ships-card). See README.md.
 // The vessels closest to a chosen location from ais-monitor (AIS via aisstream.io), on a map, in a sortable list and
 // one at a time, classified as military, government, commercial, service, fishing or private.
+// Tides tab: Canadian Hydrographic Service tides at the locations (tides-card.js, loaded by the card; the monitor relays
+// CHS, whose certificate browsers no longer trust).
 // Bridge tab: the selected vessel's view from its bridge over Google's photorealistic 3D world (ships-bridge.js,
 // CesiumJS from Cesium's CDN, loaded only when the tab opens; needs a Cesium ion token, pasted into the tab).
-// Install: copy ships-card.js and ships-bridge.js to /config/www/, add /local/ships-card.js as a JavaScript module
+// Install: copy ships-card.js, ships-bridge.js and tides-card.js to /config/www/, add /local/ships-card.js as a JavaScript module
 // resource (ships-bridge.js is loaded by the card, not a resource of its own).
 
 const DEFAULTS = {
@@ -153,7 +155,7 @@ const WRECK_KINDS = { civil: { l: "Shipwrecks", c: "#8e1b1b", i: "mdi:ferry" }, 
 const NM = 3440.065;
 const RAD = Math.PI / 180;
 const TABS = [["map", "Map", "mdi:map"], ["list", "Vessels", "mdi:format-list-bulleted"], ["vessel", "Vessel", "mdi:ferry"],
-  ["bridge", "Bridge", "mdi:ship-wheel"], ["alerts", "Alerts", "mdi:bell-ring-outline"]];
+  ["bridge", "Bridge", "mdi:ship-wheel"], ["tides", "Tides", "mdi:waves"], ["alerts", "Alerts", "mdi:bell-ring-outline"]];
 const CLASSES = [
   ["mil", "Military", "mdi:shield-star", "#d4a72c"],
   ["gov", "Government", "mdi:lifebuoy", "#ff7043"],
@@ -616,6 +618,7 @@ class ShipsCard extends HTMLElement {
         </div>
         <div class="pane" id="p-vessel"><div id="vessel"></div></div>
         <div class="pane" id="p-bridge"><div id="bridge"></div></div>
+        <div class="pane" id="p-tides"><div id="tides" style="padding:12px 4px"></div></div>
         <div class="pane" id="p-alerts"><div id="alerts"></div></div>
       </ha-card>`;
 
@@ -639,6 +642,7 @@ class ShipsCard extends HTMLElement {
       this._save("loc", v);
       this._view = null;
       this._poll();
+      this._tidesEl?.showPlace(this._center()); // the Tides tab follows the location
     });
     // Vessel search.
     this.$("vq").addEventListener("input", (e) => {
@@ -774,6 +778,7 @@ class ShipsCard extends HTMLElement {
     for (const b of this.$("tabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === t);
     for (const [k] of TABS) this.$("p-" + k).classList.toggle("on", k === t);
     if (t === "alerts") this._loadAlerts();
+    if (t === "tides") this._openTides();
     this._renderAll();
   }
 
@@ -787,6 +792,30 @@ class ShipsCard extends HTMLElement {
       await this._loadSel();
       this._bridge?.setData(this._bridgeList(), this._sel);
       this._renderAll();
+    }
+  }
+
+  // ---- tides --------------------------------------------------------------------------------
+  // The Tides tab: the Tides card (tides-card.js, loaded on first use, like the bridge view), fed by this monitor's
+  // /api/tides relay; by default the nearest Canadian Hydrographic Service station to each location.
+  async _openTides() {
+    if (this._tidesEl || this._tidesLoading) return;
+    this._tidesLoading = true;
+    try {
+      const here = new URL(import.meta.url);
+      await import(new URL("./tides-card.js" + here.search, here).href);
+      const el = document.createElement("tides-card");
+      el.authToken = () => this._monToken || "";
+      el.setConfig({ monitor: this._config.monitor, auto_stations: true, embedded: true });
+      this.$("tides").innerHTML = "";
+      this.$("tides").appendChild(el);
+      this._tidesEl = el;
+      // The location's name is known before the monitor's location list has loaded (which _center() needs).
+      el.showPlace(this._center() || (this._loc && !this._loc.startsWith("pt:") ? { name: this._loc } : null));
+    } catch (e) {
+      this.$("tides").innerHTML = `<div class="muted" style="padding:30px;text-align:center">Couldn't load the tides: ${esc(e.message || e)}</div>`;
+    } finally {
+      this._tidesLoading = false;
     }
   }
 
