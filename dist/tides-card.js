@@ -395,7 +395,7 @@ class TidesCard extends HTMLElement {
         <div class="kv">${sun ? `<span>Sunrise</span><b>${hm(sun.rise)}</b><span>Sunset</span><b>${hm(sun.set)}</b>` : ""}</div>
                 ${TZ && TZ !== MY_TZ ? `<div class="sub" style="font-size:.8em">Times are local there (${esc(tzName(TZ))}: ${esc(hm(now))} now)</div>` : ""}</div>
       <div class="panel"><div class="ph"><ha-icon icon="mdi:moon-waning-crescent"></ha-icon>Moon</div>
-        <div class="mn">${moonSvg(m.phase, lat ?? 45)}<div class="kv"><span>Phase</span><b>${moonPhaseName(m.phase)}</b><span>Illuminated</span><b>${Math.round(m.fraction * 100)} %</b><span>Tides</span><b style="white-space:normal">${kind}</b></div></div></div>
+        <div class="mn">${moonSvg(m.phase, fin(lat) ? moonTilt(new Date(), lat, lon) : 0)}<div class="kv"><span>Phase</span><b>${moonPhaseName(m.phase)}</b><span>Illuminated</span><b>${Math.round(m.fraction * 100)} %</b><span>Tides</span><b style="white-space:normal">${kind}</b></div></div></div>
       <div class="panel wide"><div class="ph"><ha-icon icon="mdi:chart-bell-curve"></ha-icon>Today <span class="phs">· highs and lows</span></div>
         <div class="chart" id="mini"><svg></svg><div class="tip"></div></div>
         <div class="cards">${today.map(card).join("")}</div></div>
@@ -639,23 +639,34 @@ function moonIllum(date) {
   const phi = Math.acos(Math.sin(s.dec) * Math.sin(m.dec) + Math.cos(s.dec) * Math.cos(m.dec) * Math.cos(s.ra - m.ra));
   const inc = Math.atan2(sdist * Math.sin(phi), m.dist - sdist * Math.cos(phi));
   const angle = Math.atan2(Math.cos(s.dec) * Math.sin(s.ra - m.ra), Math.sin(s.dec) * Math.cos(m.dec) - Math.cos(s.dec) * Math.sin(m.dec) * Math.cos(s.ra - m.ra));
-  return { fraction: (1 + Math.cos(inc)) / 2, phase: 0.5 + (0.5 * inc * (angle < 0 ? -1 : 1)) / Math.PI };
+  return { fraction: (1 + Math.cos(inc)) / 2, phase: 0.5 + (0.5 * inc * (angle < 0 ? -1 : 1)) / Math.PI, angle };
 }
 function moonPhaseName(p) {
   return ["New moon", "Waxing crescent", "First quarter", "Waxing gibbous", "Full moon", "Waning gibbous", "Last quarter", "Waning crescent"][Math.round(p * 8) % 8];
 }
+// How the moon is tilted in the sky at a place and time: the bright limb's angle from the observer's zenith
+// (SunCalc: the illumination angle minus the moon's parallactic angle). Returned as the clockwise rotation, in degrees,
+// that turns moonSvg's upright drawing (lit on the right while waxing, on the left while waning) to match: near the
+// tropics a crescent lies on its back, further north it stands up, and south of the equator it's the other way round.
+function moonTilt(date, lat, lng) {
+  const d = toDays(date), c = moonCoords(d), lw = RAD * -lng, phi = RAD * lat;
+  const H = RAD * (280.16 + 360.9856235 * d) - lw - c.ra;
+  const pa = Math.atan2(Math.sin(H), Math.tan(phi) * Math.cos(c.dec) - Math.sin(c.dec) * Math.cos(H));
+  const m = moonIllum(date), z = ((m.angle - pa) * 180) / Math.PI;
+  return -z - (m.phase < 0.5 ? 90 : 270);
+}
 // The same moon drawing as the Ecowitt card.
-function moonSvg(phase, lat) {
+function moonSvg(phase, rot = 0) {
   const r = 70, c = 75, k = Math.cos(phase * 2 * Math.PI) * r;
   const waxing = phase < 0.5, gibbous = phase > 0.25 && phase < 0.75;
   const sweepOuter = waxing ? 1 : 0, sweepTerm = waxing ? (gibbous ? 1 : 0) : gibbous ? 0 : 1;
   const lit = `M${c},${c - r} A${r},${r} 0 0 ${sweepOuter} ${c},${c + r} A${Math.abs(k)},${r} 0 0 ${sweepTerm} ${c},${c - r} Z`;
-  const flip = lat < 0 ? ` transform="rotate(180 ${c} ${c})"` : "";
+  const tilt = fin(rot) && rot ? ` transform="rotate(${rot.toFixed(1)} ${c} ${c})"` : "";
   return `<svg viewBox="0 0 150 150"><defs>
       <radialGradient id="tmlit" cx="40%" cy="38%" r="70%"><stop offset="0" stop-color="#fbfbf4"/><stop offset=".7" stop-color="#d9d9cf"/><stop offset="1" stop-color="#a8a89e"/></radialGradient>
       <clipPath id="tmclip"><path d="${lit}"/></clipPath></defs>
     <circle cx="${c}" cy="${c}" r="${r}" fill="#262a30"/>
-    <g${flip}><g clip-path="url(#tmclip)"><circle cx="${c}" cy="${c}" r="${r}" fill="url(#tmlit)"/>
+    <g${tilt}><g clip-path="url(#tmclip)"><circle cx="${c}" cy="${c}" r="${r}" fill="url(#tmlit)"/>
       <g fill="#9e9e94" opacity=".45"><ellipse cx="58" cy="52" rx="16" ry="12"/><ellipse cx="88" cy="48" rx="11" ry="9"/><ellipse cx="96" cy="72" rx="13" ry="10"/>
         <ellipse cx="70" cy="80" rx="9" ry="7"/><ellipse cx="52" cy="98" rx="12" ry="8"/><circle cx="84" cy="112" r="5"/><circle cx="110" cy="96" r="4"/></g></g></g>
     <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="rgba(255,255,255,.15)"/></svg>`;
