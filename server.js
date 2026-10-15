@@ -434,6 +434,58 @@ const FLAGNAME = (() => {
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
 let photos = readJson(PHOTOS_FILE, {}); // mmsi -> {url, t}
 const UA = { 'User-Agent': 'ais-monitor (https://github.com/jchisholm59/ais-monitor)' };
+
+// Place search for "Manage locations": Photon (OpenStreetMap, made for search-as-you-type), else OpenStreetMap's
+// Nominatim when Photon is down. Nominatim asks for an identifying User-Agent, at most one request a second and
+// caching, hence through here rather than from the browser. Results cached for a day.
+const placeCache = new Map();
+let nominatimAt = 0, photonDownUntil = 0;
+async function fetchJson(url, ms) {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: UA, signal: ctl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally {
+    clearTimeout(to);
+  }
+}
+async function placeSearch(q, acceptLang) {
+  q = q.trim().slice(0, 100);
+  if (q.length < 3) return [];
+  const lang = (String(acceptLang || 'en').split(',')[0].trim().match(/^[a-z]{2,3}/i) || ['en'])[0].toLowerCase();
+  const key = `${lang}|${q.toLowerCase()}`, hit = placeCache.get(key);
+  if (hit && Date.now() - hit.t < 86400_000) return hit.r;
+  let r = null;
+  try {
+    if (Date.now() < photonDownUntil) throw new Error('Photon down');
+    // Photon's languages: en, de, fr (others get local names).
+    const d = await fetchJson(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8${['de', 'fr'].includes(lang) ? `&lang=${lang}` : ''}`, 4000)
+      .catch((e) => ((photonDownUntil = Date.now() + 600_000), Promise.reject(e))); // skip it for 10 minutes
+    r = (d.features || []).map((f) => {
+      const p = f.properties || {};
+      return { name: p.name || q, where: [p.city, p.state, p.country].filter((x) => x && x !== p.name).join(', '), kind: p.osm_value || '', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+    });
+  } catch (e) {
+    const wait = nominatimAt + 1100 - Date.now();
+    if (wait > 0) await new Promise((ok) => setTimeout(ok, wait));
+    nominatimAt = Date.now();
+    try {
+      const d = await fetchJson(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&limit=8&addressdetails=1&accept-language=${lang}`, 6000);
+      r = (d || []).map((x) => {
+        const a = x.address || {}, name = x.name || String(x.display_name || q).split(',')[0];
+        return { name, where: [a.city || a.town || a.village, a.state, a.country].filter((y) => y && y !== name).join(', '), kind: x.type || '', lat: +x.lat, lon: +x.lon };
+      });
+    } catch (e2) {
+      log('place search failed:', e.message, '/', e2.message);
+      return { error: 'place search unavailable' };
+    }
+  }
+  placeCache.set(key, { t: Date.now(), r });
+  if (placeCache.size > 500) placeCache.delete(placeCache.keys().next().value);
+  return r;
+}
 async function wdJson(url) {
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), 8000);
@@ -721,6 +773,7 @@ const server = http.createServer(async (req, res) => {
     for (const v of list) counts[v.cls] = (counts[v.cls] || 0) + 1;
     return sendJson(res, { center: c, total: live.length, counts, vessels: list });
   }
+  if (p === '/api/places') return sendJson(res, await placeSearch(url.searchParams.get('q') || '', req.headers['accept-language']));
   if (p === '/api/search') {
     const q = (url.searchParams.get('q') || '').trim().toUpperCase();
     if (q.length < 2) return sendJson(res, []);

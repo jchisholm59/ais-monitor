@@ -984,7 +984,7 @@ class ShipsCard extends HTMLElement {
         <span class="muted">or</span>
         <input class="q" id="pn" placeholder="Name" style="width:140px"><button class="btn" data-l="centre"><ha-icon icon="mdi:crosshairs-gps"></ha-icon>Add the map centre</button>
       </div>
-      <div class="muted" style="font-size:.75em;margin-top:6px">${this._locErr ? `<span class="bad">${esc(this._locErr)}</span> · ` : ""}Place search by Photon (OpenStreetMap). Locations are saved in ais-monitor, so every device sees them.</div>`;
+      <div class="muted" style="font-size:.75em;margin-top:6px">${this._locErr ? `<span class="bad">${esc(this._locErr)}</span> · ` : ""}Place search by OpenStreetMap (Photon, or Nominatim). Locations are saved in ais-monitor, so every device sees them.</div>`;
   }
 
   async _placeSearch(q) {
@@ -992,11 +992,21 @@ class ShipsCard extends HTMLElement {
     if (!box) return;
     if (q.length < 3) return (box.innerHTML = "");
     try {
-      const d = await getJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8`, {}, 8000);
-      this._pRes = (d.features || []).map((f) => {
-        const p = f.properties || {};
-        return { name: p.name || q, where: [p.city, p.state, p.country].filter((x) => x && x !== p.name).join(", "), kind: p.osm_value || "", lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
-      });
+      // Through ais-monitor (Photon, else Nominatim when Photon is down); straight to Photon for an older monitor.
+      let r;
+      try {
+        r = await this._mon(`/api/places?q=${encodeURIComponent(q)}`);
+      } catch (e) {
+        if (!/HTTP 404/.test(e.message)) throw e;
+        const d = await getJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8`, {}, 8000);
+        r = (d.features || []).map((f) => {
+          const p = f.properties || {};
+          return { name: p.name || q, where: [p.city, p.state, p.country].filter((x) => x && x !== p.name).join(", "), kind: p.osm_value || "", lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+        });
+      }
+      if (!Array.isArray(r)) throw new Error(r?.error || "no results");
+      if (this.$("pq")?.value.trim() !== q) return; // typed on since
+      this._pRes = r;
       box.innerHTML = this._pRes.map((r, i) => `<button data-l="place" data-i="${i}"><b>${esc(r.name)}</b> <span class="muted">${esc([r.where, r.kind.replace(/_/g, " ")].filter(Boolean).join(" · "))}</span></button>`).join("") || `<div class="muted" style="padding:8px">Nothing found</div>`;
     } catch (e) {
       box.innerHTML = `<div class="muted" style="padding:8px">Place search unavailable</div>`;
