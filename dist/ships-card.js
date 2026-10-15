@@ -750,6 +750,14 @@ class ShipsCard extends HTMLElement {
       else if (act === "test") {
         a.disabled = true;
         this._mon("/api/test-alert", { method: "POST" }).then(() => this._loadAlerts(), () => {}).finally(() => (a.disabled = false));
+      } else if ((act === "watch" || act === "unwatch") && this._settings) {
+        const m = Number(a.dataset.m), cur = this._settings.watch || [];
+        const on = cur.some((w) => w.mmsi === m);
+        const v = this._byMmsi?.get(m) || (this._sel === m ? this._selData : null);
+        const next = on ? cur.filter((w) => w.mmsi !== m) : [...cur, { mmsi: m, name: v?.name || a.dataset.n || "" }];
+        this._settings = { ...this._settings, watch: next }; // show it straight away
+        this._renderVessel();
+        this._saveSettings({ watch: next }).then(() => this._renderVessel());
       } else if (act === "harbour" && this._settings) {
         const h = a.dataset.h, cur = this._settings.harbours || [];
         this._saveSettings({ harbours: cur.includes(h) ? cur.filter((x) => x !== h) : [...cur, h] });
@@ -1077,7 +1085,7 @@ class ShipsCard extends HTMLElement {
     }
     const locs = this._status?.locations || [];
     const sw = (k, on, l, sub) => `<label class="arow"><input type="checkbox" class="tg" data-set="${k}" ${on ? "checked" : ""}><div class="grow">${l}<div class="sub">${sub}</div></div></label>`;
-    const icon = { warship: "mdi:shield-star", cruise: "mdi:ferry", coastguard: "mdi:lifebuoy", test: "mdi:bell-check" };
+    const icon = { warship: "mdi:shield-star", cruise: "mdi:ferry", coastguard: "mdi:lifebuoy", watched: "mdi:star", test: "mdi:bell-check" };
     box.innerHTML = `
       <div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:0">
         <ha-icon icon="mdi:cellphone-message" style="color:var(--primary-color)"></ha-icon>
@@ -1100,6 +1108,10 @@ class ShipsCard extends HTMLElement {
           <div class="chips">${locs.map((l) => `<button data-act="harbour" data-h="${esc(l.name)}" class="${s.harbours.includes(l.name) ? "on" : ""}">${esc(l.name)}</button>`).join("")}</div>
           <div class="fnote">Tap to turn on or off. Add or remove locations with <i>Manage locations…</i> in the location list.</div>
         </div>
+      </div>
+      <div class="panel"><h4>Watched ships</h4>
+        ${(s.watch || []).length ? `<div class="chips">${s.watch.map((w) => `<button data-act="unwatch" data-m="${w.mmsi}" class="on" title="Stop watching">⭐ ${esc(w.name || `MMSI ${w.mmsi}`)} ✕</button>`).join("")}</div>` : ""}
+        <div class="fnote">${(s.watch || []).length ? "These alert whenever they arrive at or leave a harbour above (harbour and departure circles), whatever their type. Tap one to stop watching it." : "None yet. Tap <b>Watch</b> on a ship's Vessel tab to be alerted whenever it arrives at or leaves a harbour above, whatever its type."}</div>
       </div>
       <div class="panel"><h4>Recent alerts</h4>
         ${(this._alerts || []).map((a) => `<div class="arow"><span class="muted" style="font-size:.78em;min-width:92px">${new Date(a.t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
@@ -1491,7 +1503,7 @@ class ShipsCard extends HTMLElement {
       `<th data-k="${c}" class="${r ? "r" : ""}${c === k ? " on" : ""}">${l}${c === k ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`)).join("")}</tr>`;
     this.$("lbody").innerHTML = rows.map((v) => `<tr data-m="${v.mmsi}" class="${v.mmsi === this._sel ? "sel" : ""}${v.posAge > 900 ? " stale" : ""}">
         <td class="pin"><button data-act="locate" data-m="${v.mmsi}" title="Show on the map"><ha-icon icon="mdi:map-marker-radius"></ha-icon></button></td>
-        <td><span class="fl" title="${esc(country(v.flag))}">${flagEmoji(v.flag)}</span><b>${esc(v.name || "")}</b>${v.name ? "" : `<span class="muted">${v.mmsi}</span>`}</td>
+        <td><span class="fl" title="${esc(country(v.flag))}">${flagEmoji(v.flag)}</span><b>${esc(v.name || "")}</b>${v.name ? "" : `<span class="muted">${v.mmsi}</span>`}${(this._settings?.watch || []).some((w) => w.mmsi === v.mmsi) ? ` <span title="Watched">⭐</span>` : ""}</td>
         <td>${this._tag(v)}</td>
         <td>${esc(v.sub && v.sub !== CLASS[v.cls]?.l ? v.sub : v.typeLabel)}</td>
         <td>${esc(STATUS[v.status] || "")}</td>
@@ -1509,6 +1521,11 @@ class ShipsCard extends HTMLElement {
 
   _renderVessel() {
     if (!this._built || this._tab !== "vessel") return;
+    // The Watch button needs the alert settings (owner only); fetch them once if the Alerts tab hasn't yet.
+    if (!this._settings && !this._setLoad && this._auth?.admin !== false) {
+      this._setLoad = true;
+      this._mon("/api/settings").then((st) => ((this._settings = st), this._renderVessel()), () => {}).finally(() => (this._setLoad = false));
+    }
     const box = this.$("vessel");
     const v = this._sel && { ...(this._selData || {}), ...(this._byMmsi?.get(this._sel) || {}) };
     if (!v?.mmsi) {
@@ -1539,6 +1556,10 @@ class ShipsCard extends HTMLElement {
       <div class="panel"><h4>Speed, last 2 hours (kn)</h4><div class="ch" id="c-sog"></div></div>
       <div class="acts" style="margin-top:12px">
         <button class="btn pri" data-act="locate" data-m="${v.mmsi}"><ha-icon icon="mdi:map-marker-radius"></ha-icon>Show on map</button>
+        ${this._settings && this._auth?.admin !== false ? (() => {
+          const w = (this._settings.watch || []).some((x) => x.mmsi === v.mmsi);
+          return `<button class="btn${w ? " pri" : ""}" data-act="watch" data-m="${v.mmsi}" data-n="${esc(v.name || "")}" title="${w ? "Stop alerting for this ship" : "Alert me whenever this ship arrives at or leaves a watched harbour"}"><ha-icon icon="${w ? "mdi:star" : "mdi:star-outline"}"></ha-icon>${w ? "Watching" : "Watch"}</button>`;
+        })() : ""}
         <a class="btn" href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${v.mmsi}" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>MarineTraffic</a>
         <a class="btn" href="https://www.vesselfinder.com/vessels/details/${v.imo || v.mmsi}" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>VesselFinder</a>
         <a class="btn" href="https://www.myshiptracking.com/vessels/mmsi-${v.mmsi}" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>MyShipTracking</a>

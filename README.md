@@ -158,6 +158,15 @@ still there. Example:
 > QUEEN MARY 2 · 345 m · Bermuda
 > 18.2 kn, 6.6 nm from Halifax Harbour, destination USNYC
 
+**Watched ships**: tap **Watch** (☆) on a ship's Vessel tab and that ship alerts whenever it arrives at or leaves a
+watched harbour (harbour and departure circles as above), whatever its type and whether or not *…and when they
+leave* is on: a ferry you like, a research vessel, a friend's yacht. Watched ships carry a ⭐ in the vessel list and are
+listed on the Alerts tab, where a tap stops watching one. Example:
+
+> ⭐ **OCEAN VICTORY entering Halifax Harbour**
+> Passenger / ferry · 104 m · Portugal
+> 9.8 kn, 5.9 nm from Halifax Harbour, destination UY MVD
+
 **Photos**: both alerts carry a photo of the ship when one can be found: the main image of the ship's
 [Wikidata](https://www.wikidata.org/) item (a hand-picked exterior shot, not a random one from the ship's gallery),
 found by IMO number, then MMSI, then by name when the item is described as a ship, frigate and so on. Most cruise

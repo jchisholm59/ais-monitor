@@ -356,7 +356,8 @@ function save() {
 // seen outside it (so ships already in port when the monitor starts never alert). Optionally also leaving: crossing
 // back out of the departure circle (its own radius, else the harbour circle's; a quarter of it or half a mile past
 // the edge, whichever is less, so one anchored on the edge doesn't flip-flop) after at least 30 minutes inside it;
-// ships already in port when the monitor starts count. A departure circle smaller than the harbour circle alerts as
+// ships already in port when the monitor starts count. Watched ships (starred on the card's Vessel tab) alert both ways
+// whatever their type and whether or not departures are on. A departure circle smaller than the harbour circle alerts as
 // the ship pulls away from its berth instead of once it's out of the harbour. Both carry a photo of the ship.
 // Sent to Home Assistant's webhook.
 
@@ -369,15 +370,18 @@ const DEFAULT_SETTINGS = {
   departRadius: 0, // nm for departures; 0 = the same as radius
   harbours: LOCATIONS.length ? [LOCATIONS[0].name] : [],
   cooldownHours: 12,
+  watch: [], // [{ mmsi, name }]: these ships alert arriving and leaving, whatever their type
 };
 let settings = { ...DEFAULT_SETTINGS, ...readJson(SETTINGS_FILE, {}) };
 let alerts = readJson(ALERTS_FILE, []);
 
 function alertKind(v) {
   const k = classify(v);
-  if (k.cls === 'mil' && settings.warships) return { kind: 'warship', k };
-  if (k.cls === 'com' && k.sub === 'Cruise ship' && settings.cruise) return { kind: 'cruise', k };
-  if (k.cls === 'gov' && k.sub === 'Coast Guard' && settings.coastguard) return { kind: 'coastguard', k };
+  const watched = (settings.watch || []).some((w) => w.mmsi === v.mmsi);
+  if (k.cls === 'mil' && settings.warships) return { kind: 'warship', k, watched };
+  if (k.cls === 'com' && k.sub === 'Cruise ship' && settings.cruise) return { kind: 'cruise', k, watched };
+  if (k.cls === 'gov' && k.sub === 'Coast Guard' && settings.coastguard) return { kind: 'coastguard', k, watched };
+  if (watched) return { kind: 'watched', k, watched };
   return null;
 }
 
@@ -396,8 +400,8 @@ function checkHarbours(v) {
     else if (st.depIn && d > D + Math.min(0.5, D / 4)) {
       const stayed = now - st.depIn >= 30 * 60_000;
       st.depIn = null;
-      const a = settings.departures && stayed && alertKind(v);
-      if (a && !alerts.some((x) => x.mmsi === v.mmsi && x.harbour === name && x.leaving && now - x.t < 3600_000)) sendAlert(v, a, h, d, true);
+      const a = stayed && alertKind(v);
+      if (a && (settings.departures || a.watched) && !alerts.some((x) => x.mmsi === v.mmsi && x.harbour === name && x.leaving && now - x.t < 3600_000)) sendAlert(v, a, h, d, true);
     }
     st.seen = true;
     delete st.inSince; // the old single-circle departure state
@@ -504,8 +508,8 @@ async function cruiseMapperUrl(name) {
 
 async function sendAlert(v, a, h, d, leaving = false) {
   const name = v.name || `MMSI ${v.mmsi}`, flag = flagOf(v.mmsi);
-  const what = a.kind === 'warship' ? (a.k.navy ? `${a.k.navy} warship` : 'Warship') : a.kind === 'cruise' ? 'Cruise ship' : 'Coast Guard ship';
-  const icon = a.kind === 'warship' ? '⚓' : a.kind === 'cruise' ? '🛳️' : '🛟';
+  const what = a.kind === 'watched' ? name : a.kind === 'warship' ? (a.k.navy ? `${a.k.navy} warship` : 'Warship') : a.kind === 'cruise' ? 'Cruise ship' : 'Coast Guard ship';
+  const icon = a.kind === 'watched' ? '⭐' : a.kind === 'warship' ? '⚓' : a.kind === 'cruise' ? '🛳️' : '🛟';
   const bits = [a.k.sub && a.k.sub !== 'Military' && a.kind !== 'cruise' ? a.k.sub : '', v.length ? `${v.length} m` : '', FLAGNAME(flag)].filter(Boolean).join(' · ');
   const move = [v.sog != null ? `${v.sog.toFixed(1)} kn` : '', `${d.toFixed(1)} nm from ${h.name}`, v.dest ? `destination ${v.dest}` : ''].filter(Boolean).join(', ');
   const image = await shipPhoto(v);
@@ -513,7 +517,7 @@ async function sendAlert(v, a, h, d, leaving = false) {
     // The same tag for arriving and leaving: the departure replaces the arrival notification if it's still there.
     kind: a.kind, mmsi: v.mmsi, harbour: h.name, priority: 'high', tag: `ais-${a.kind}-${v.mmsi}`, leaving, image,
     title: `${icon} ${what} ${leaving ? 'leaving' : 'entering'} ${h.name}`,
-    message: `${name}${bits ? ` · ${bits}` : ''}\n${move}`,
+    message: `${a.kind === 'watched' ? [a.k.sub || typeLabel(v.type) || 'Ship', bits].filter(Boolean).join(' · ') : `${name}${bits ? ` · ${bits}` : ''}`}\n${move}`,
   });
 }
 
@@ -581,6 +585,9 @@ function updateSettings(p) {
     const n = Number(p.departRadius);
     if (Number.isFinite(n) && n >= 0 && n <= 50) settings.departRadius = n; // 0: same as the harbour circle
   }
+  if (Array.isArray(p.watch))
+    settings.watch = p.watch.map((w) => ({ mmsi: Number(w?.mmsi), name: String(w?.name || '').slice(0, 40) }))
+      .filter((w, i, all) => Number.isInteger(w.mmsi) && w.mmsi > 0 && w.mmsi < 1e9 && all.findIndex((x) => x.mmsi === w.mmsi) === i).slice(0, 100);
   if (Array.isArray(p.harbours)) settings.harbours = p.harbours.filter((n) => LOCATIONS.some((l) => l.name === n));
   writeJson(SETTINGS_FILE, settings);
   return settings;
