@@ -146,9 +146,12 @@ vessel doesn't alert again for 12 h. Example:
 > HMCS HALIFAX · Royal Canadian Navy · Canada
 > 12.0 kn, 4.6 nm from Halifax Harbour
 
-**Leaving** (switch: *…and when they leave*): the same ships crossing back out, half a mile past the circle so one
-anchored on its edge doesn't flip-flop, after at least 30 minutes inside (ships already in port when the monitor
-starts count). It uses the same notification tag, so on the phone it replaces the arrival notification if that's
+**Leaving** (switch: *…and when they leave*): the same ships crossing back out of the **departure circle**, after at
+least 30 minutes inside it (ships already in port when the monitor starts count), and a little past its edge (a
+quarter of the radius or half a mile, whichever is less) so one anchored on the edge doesn't flip-flop. The departure
+circle is the harbour circle unless you give it its own radius on the Alerts tab. Make it smaller to hear about a
+departure as the ship pulls away from its berth rather than once it's out of the harbour: e.g. a 6 nm harbour circle
+for arrivals and a 1 nm departure circle when the berth is within a mile of your location. It uses the same notification tag, so on the phone it replaces the arrival notification if that's
 still there. Example:
 
 > 🛳️ **Cruise ship leaving Halifax Harbour**

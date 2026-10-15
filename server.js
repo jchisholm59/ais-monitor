@@ -354,8 +354,10 @@ function save() {
 // ---- alerts ----------------------------------------------------------------
 // Warships and cruise ships entering a harbour: crossing into ALERT radius around a chosen location after having been
 // seen outside it (so ships already in port when the monitor starts never alert). Optionally also leaving: crossing
-// back out (half a mile past the circle, so one anchored on the edge doesn't flip-flop) after at least 30 minutes
-// inside; ships already in port when the monitor starts count. Both carry a photo of the ship when one is found.
+// back out of the departure circle (its own radius, else the harbour circle's; a quarter of it or half a mile past
+// the edge, whichever is less, so one anchored on the edge doesn't flip-flop) after at least 30 minutes inside it;
+// ships already in port when the monitor starts count. A departure circle smaller than the harbour circle alerts as
+// the ship pulls away from its berth instead of once it's out of the harbour. Both carry a photo of the ship.
 // Sent to Home Assistant's webhook.
 
 const DEFAULT_SETTINGS = {
@@ -364,6 +366,7 @@ const DEFAULT_SETTINGS = {
   coastguard: false,
   departures: false, // also alert when they leave
   radius: num('ALERT_RADIUS_NM', 6), // nm around each harbour location
+  departRadius: 0, // nm for departures; 0 = the same as radius
   harbours: LOCATIONS.length ? [LOCATIONS[0].name] : [],
   cooldownHours: 12,
 };
@@ -386,20 +389,24 @@ function checkHarbours(v) {
     if (!h) continue;
     const st = (v.harb[name] ||= {});
     const d = dist(h.lat, h.lon, v.lat, v.lon), now = Date.now();
+    // Leaving: inside the departure circle for a while, then clearly outside it. A ship first seen inside (already in
+    // port at start-up) counts as having stayed.
+    const D = settings.departRadius || settings.radius;
+    if (d <= D) st.depIn ||= st.seen ? now : now - 3600_000;
+    else if (st.depIn && d > D + Math.min(0.5, D / 4)) {
+      const stayed = now - st.depIn >= 30 * 60_000;
+      st.depIn = null;
+      const a = settings.departures && stayed && alertKind(v);
+      if (a && !alerts.some((x) => x.mmsi === v.mmsi && x.harbour === name && x.leaving && now - x.t < 3600_000)) sendAlert(v, a, h, d, true);
+    }
+    st.seen = true;
+    delete st.inSince; // the old single-circle departure state
     if (d > settings.radius) {
       st.out = now;
       st.alerted = false;
-      // Leaving: well outside after a stay inside.
-      if (st.inSince && d > settings.radius + 0.5) {
-        const stayed = now - st.inSince >= 30 * 60_000;
-        st.inSince = null;
-        const a = settings.departures && stayed && alertKind(v);
-        if (a && !alerts.some((x) => x.mmsi === v.mmsi && x.harbour === name && x.leaving && now - x.t < 3600_000)) sendAlert(v, a, h, d, true);
-      }
       continue;
     }
-    // Inside. A ship first seen inside (already in port at start-up) counts as having stayed.
-    st.inSince ||= st.out ? now : now - 3600_000;
+    // Inside the harbour circle: an arrival if it was outside not long ago.
     if (!st.out || Date.now() - st.out > 6 * 3600_000 || st.alerted) continue; // must have been outside recently
     const a = alertKind(v);
     if (!a) continue; // type may still arrive while it's inside
@@ -569,6 +576,10 @@ function updateSettings(p) {
   for (const [k, max] of [['radius', 50], ['cooldownHours', 168]]) {
     const n = Number(p[k]);
     if (p[k] !== undefined && Number.isFinite(n) && n > 0 && n <= max) settings[k] = n;
+  }
+  if (p.departRadius !== undefined) {
+    const n = Number(p.departRadius);
+    if (Number.isFinite(n) && n >= 0 && n <= 50) settings.departRadius = n; // 0: same as the harbour circle
   }
   if (Array.isArray(p.harbours)) settings.harbours = p.harbours.filter((n) => LOCATIONS.some((l) => l.name === n));
   writeJson(SETTINGS_FILE, settings);

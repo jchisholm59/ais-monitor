@@ -1091,8 +1091,9 @@ class ShipsCard extends HTMLElement {
           ${sw("warships", s.warships, "Warships", "military vessels, e.g. HMCS / USS / HMS in the name, or AIS type 35")}
           ${sw("cruise", s.cruise, "Cruise ships", "passenger vessels 200 m or longer")}
           ${sw("coastguard", s.coastguard, "Coast Guard ships", "CCGS / USCGC")}
-          ${sw("departures", s.departures, "…and when they leave", "the same ships leaving the harbour circle after at least 30 minutes inside; it replaces the arrival notification")}
-          <div class="arow"><div class="grow">Harbour circle<div class="sub">radius around each harbour location below</div></div><input type="number" data-set="radius" value="${esc(s.radius)}" min="0.5" max="50" step="0.5"> nm</div>
+          ${sw("departures", s.departures, "…and when they leave", "the same ships leaving the departure circle after at least 30 minutes inside it; it replaces the arrival notification")}
+          <div class="arow"><div class="grow">Harbour circle<div class="sub">radius around each harbour location below: arrivals alert on the way in</div></div><input type="number" data-set="radius" value="${esc(s.radius)}" min="0.5" max="50" step="0.5"> nm</div>
+          ${s.departures ? `<div class="arow"><div class="grow">Departure circle<div class="sub">leaving alerts when a ship goes out of this one; smaller than the harbour circle = earlier, as it pulls away (a bit more than the distance to the berth). Blank or 0: the harbour circle</div></div><input type="number" data-set="departRadius" value="${s.departRadius ? esc(s.departRadius) : ""}" placeholder="${esc(s.radius)}" min="0" max="50" step="0.25"> nm</div>` : ""}
           <div class="arow"><div class="grow">Same ship again after<div class="sub">it left and came back</div></div><input type="number" data-set="cooldownHours" value="${esc(s.cooldownHours)}" min="1" max="168"> h</div>
         </div>
         <div class="panel"><h4>Harbours to watch</h4>
