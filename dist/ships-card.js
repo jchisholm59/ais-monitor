@@ -556,7 +556,9 @@ class ShipsCard extends HTMLElement {
         .vname .ctag { font-size: .42em; } .vname .pill { font-size: .42em; }
         .vphoto { margin-top: 12px; }
         .vphoto:empty { display: none; }
-        .vphoto img { display: block; width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; background: var(--secondary-background-color, rgba(127,127,127,.12)); }
+        /* The whole photo, scaled to fit (no cropping: the hull and the masts both matter), centred. */
+        .vphoto > a { display: block; text-align: center; }
+        .vphoto img { display: inline-block; max-width: 100%; max-height: 380px; width: auto; height: auto; vertical-align: top; border-radius: 10px; }
         .vphoto .cap { font-size: .75em; color: var(--secondary-text-color); margin-top: 4px; }
         .vphoto .cap a { color: inherit; }
         .vsub { font-size: .9em; color: var(--secondary-text-color); margin-top: 3px; }
