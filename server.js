@@ -265,7 +265,7 @@ function onMessage(m) {
 
 // ---- aisstream connection -----------------------------------------------------
 
-let ws = null, backoff = 5000;
+let ws = null, backoff = 5000, connectAt = 0, retryPending = false;
 function boxOf(a) {
   const dLat = a.radius / 60, dLon = a.radius / (60 * Math.cos(a.lat * RAD));
   return [[a.lat - dLat, a.lon - dLon], [a.lat + dLat, a.lon + dLon]];
@@ -303,7 +303,9 @@ function editLocations(op, b) {
 function connect() {
   if (!KEY) return (stats.error = 'AISSTREAM_KEY is not set in .env');
   if (!AREAS.length && !WORLDWIDE) return (stats.error = 'Set LOCATIONS (or AREA_LAT / AREA_LON, or WORLDWIDE=true) in .env');
-  ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  retryPending = false;
+  connectAt = Date.now();
+  const sock = (ws = new WebSocket('wss://stream.aisstream.io/v0/stream'));
   ws.onopen = () => {
     // Must subscribe within 3 s of connecting.
     subscribe();
@@ -323,9 +325,11 @@ function connect() {
     } catch (err) {}
   };
   ws.onclose = () => {
+    if (sock !== ws) return; // an abandoned socket (see the watchdog below)
     stats.connected = false;
     stats.reconnects++;
     log(`aisstream closed; reconnecting in ${backoff / 1000} s`);
+    retryPending = true;
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 300_000);
   };
@@ -334,11 +338,21 @@ function connect() {
   };
 }
 // aisstream sometimes goes quiet without closing; reconnect if nothing for 5 minutes.
+// And a failed handshake ("non-101 status code") can end with an error but no close event, so no retry was ever
+// scheduled (silent from 15 to 19 October 2026): if a connect attempt hasn't opened within 2 minutes, start another.
 setInterval(() => {
   if (stats.connected && Date.now() - stats.lastMsg > 300_000) {
     log('no AIS messages for 5 min; reconnecting');
     try {
       ws.close();
+    } catch (e) {}
+  } else if (ws && !stats.connected && !retryPending && Date.now() - connectAt > 120_000) {
+    log(`connect attempt stuck (${stats.error || 'no answer'}); retrying`);
+    const old = ws;
+    stats.reconnects++;
+    connect();
+    try {
+      old.close();
     } catch (e) {}
   }
 }, 60_000);
