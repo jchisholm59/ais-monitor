@@ -443,10 +443,10 @@ const FLAGNAME = (() => {
   }
 })();
 
-// A photo of the ship for the notification: Wikidata's main image (P18) for the ship's item, found by IMO number
-// (P458), else MMSI (P587), else by name when the item is described as a ship. Commons thumbnail, 800 px. Cached.
+// A photo of the ship, for the card's Vessel tab and Bridge / Follow views (/api/photo/<mmsi>) and the alerts.
+// Commons thumbnail, 800 px; how it's found is with shipPhoto() below.
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
-let photos = readJson(PHOTOS_FILE, {}); // mmsi -> {url, t}
+let photos = readJson(PHOTOS_FILE, {}); // mmsi -> {v: 2, url, full, page, file, credit, license, date, t}
 const UA = { 'User-Agent': 'ais-monitor (https://github.com/jchisholm59/ais-monitor)' };
 
 // Place search for "Manage locations": Photon (OpenStreetMap, made for search-as-you-type), else OpenStreetMap's
@@ -510,32 +510,87 @@ async function wdJson(url) {
     clearTimeout(to);
   }
 }
+// The lookup, best first: the photo Wikidata gives the ship's item (P18, chosen by its editors), found by IMO number
+// (P458) or MMSI (P587); else the newest landscape photo in Wikimedia Commons' "IMO <n>" category (or the item's
+// Commons category, P373), which spotters fill for many merchant ships that have no Wikidata photo (the files sit in a
+// subcategory named after the ship); else a Wikidata item found by name when it's described as a ship. With its
+// credit and licence (Commons photos are CC BY / BY-SA or free: the card shows both). Cached: a find for 30 days,
+// nothing found for 7, a failed lookup (network) for an hour.
+const WD = 'https://www.wikidata.org/w/api.php?format=json&';
+const COMMONS = 'https://commons.wikimedia.org/w/api.php?format=json&';
+const IMAGE = /\.(jpe?g|png|webp)$/i;
+const isImo = (n) => Number.isInteger(n) && n >= 1000000 && n <= 9999999;
+const plain = (html) => String(html || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+async function commonsFiles(cat, depth = 1) {
+  const m = (await wdJson(`${COMMONS}action=query&list=categorymembers&cmtype=file|subcat&cmlimit=50&cmtitle=${encodeURIComponent(cat)}`))?.query?.categorymembers || [];
+  const files = m.filter((x) => x.ns === 6 && IMAGE.test(x.title)).map((x) => x.title);
+  if (files.length || !depth) return files;
+  for (const sub of m.filter((x) => x.ns === 14).slice(0, 3)) {
+    const f = await commonsFiles(sub.title, depth - 1);
+    if (f.length) return f;
+  }
+  return [];
+}
+// Commons file details for up to 20 titles; picks the newest landscape one (the ship as it looks now; portrait shots
+// are mostly details), else the first.
+async function commonsPick(titles) {
+  const d = await wdJson(`${COMMONS}action=query&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=800&titles=${encodeURIComponent(titles.slice(0, 20).join('|'))}`);
+  const pages = Object.values(d?.query?.pages || {}).filter((pg) => pg.imageinfo?.[0]?.thumburl);
+  if (!pages.length) return null;
+  // Commons dates come as "2022-01-20 10:15", "Taken on 2018-08-26", "Autumn 2005"...: the date (or year) in them.
+  const date = (ii) => (plain(ii.extmetadata?.DateTimeOriginal?.value || ii.extmetadata?.DateTime?.value).match(/\d{4}(-\d\d-\d\d)?/) || [''])[0];
+  const score = (pg) => {
+    const ii = pg.imageinfo[0];
+    return (ii.width >= ii.height ? 'b' : 'a') + date(ii);
+  };
+  const pg = pages.sort((a, b) => (score(b) > score(a) ? 1 : score(b) < score(a) ? -1 : titles.indexOf(a.title) - titles.indexOf(b.title)))[0];
+  const ii = pg.imageinfo[0], md = ii.extmetadata || {};
+  return {
+    url: ii.thumburl, full: ii.url, page: ii.descriptionurl, file: pg.title.replace(/^File:/, '').replace(IMAGE, ''),
+    credit: plain(md.Artist?.value).slice(0, 100), license: plain(md.LicenseShortName?.value), date: date(ii),
+  };
+}
+const photoLookups = new Map(); // mmsi -> promise, so the card and an alert don't look the same ship up twice at once
 async function shipPhoto(v) {
   const c = photos[v.mmsi];
-  if (c && Date.now() - c.t < (c.url ? 30 : 7) * 86400_000) return c.url;
-  let url = '';
-  try {
-    const WD = 'https://www.wikidata.org/w/api.php?format=json&';
-    const byClaim = async (claim) => (await wdJson(`${WD}action=query&list=search&srlimit=1&srsearch=${encodeURIComponent('haswbstatement:' + claim)}`))?.query?.search?.[0]?.title;
-    let q = (v.imo && (await byClaim(`P458=${v.imo}`))) || (await byClaim(`P587=${v.mmsi}`));
-    if (!q && v.name && v.name.length > 3) {
-      const r = await wdJson(`${WD}action=wbsearchentities&language=en&type=item&limit=5&search=${encodeURIComponent(v.name)}`);
-      const hit = (r?.search || []).find((x) => /\b(ship|vessel|frigate|destroyer|cruiser|corvette|submarine|carrier|patrol|liner|ferry|icebreaker|tanker|class)\b/i.test(x.description || '') && !/disambiguation/i.test(x.description || ''));
-      q = hit?.id;
-    }
-    if (q) {
-      const file = (await wdJson(`${WD}action=wbgetclaims&property=P18&entity=${q}`))?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
-      if (file) {
-        const ii = await wdJson(`https://commons.wikimedia.org/w/api.php?format=json&action=query&prop=imageinfo&iiprop=url&iiurlwidth=800&titles=${encodeURIComponent('File:' + file)}`);
-        url = Object.values(ii?.query?.pages || {})[0]?.imageinfo?.[0]?.thumburl || '';
+  if (c?.v === 2 && Date.now() - c.t < (c.err ? 3600_000 : (c.url ? 30 : 7) * 86400_000)) return c.url ? c : null;
+  if (photoLookups.has(v.mmsi)) return photoLookups.get(v.mmsi);
+  const run = (async () => {
+    let photo = null, err = false;
+    try {
+      const byClaim = async (claim) => (await wdJson(`${WD}action=query&list=search&srlimit=1&srsearch=${encodeURIComponent('haswbstatement:' + claim)}`))?.query?.search?.[0]?.title;
+      const imo = isImo(v.imo) ? v.imo : null;
+      let q = (imo && (await byClaim(`P458=${imo}`))) || (await byClaim(`P587=${v.mmsi}`));
+      const claims = async (item) => (await wdJson(`${WD}action=wbgetclaims&entity=${item}`))?.claims || {};
+      let cl = q ? await claims(q) : {};
+      const p18 = () => cl.P18?.[0]?.mainsnak?.datavalue?.value;
+      if (p18()) photo = await commonsPick(['File:' + p18()]);
+      if (!photo) {
+        const cats = [imo && `Category:IMO ${imo}`, cl.P373?.[0]?.mainsnak?.datavalue?.value && `Category:${cl.P373[0].mainsnak.datavalue.value}`].filter(Boolean);
+        for (const cat of cats) {
+          const files = await commonsFiles(cat);
+          if (files.length && (photo = await commonsPick(files))) break;
+        }
       }
+      if (!photo && !q && v.name && v.name.length > 3) {
+        const r = await wdJson(`${WD}action=wbsearchentities&language=en&type=item&limit=5&search=${encodeURIComponent(v.name)}`);
+        const hit = (r?.search || []).find((x) => /\b(ship|vessel|frigate|destroyer|cruiser|corvette|submarine|carrier|patrol|liner|ferry|icebreaker|tanker|class)\b/i.test(x.description || '') && !/disambiguation/i.test(x.description || ''));
+        if ((q = hit?.id) && ((cl = await claims(q)), p18())) photo = await commonsPick(['File:' + p18()]);
+      }
+    } catch (e) {
+      err = true;
+      log('photo lookup failed:', v.mmsi, e.message);
     }
-  } catch (e) {
-    log('photo lookup failed:', v.mmsi, e.message);
+    photos[v.mmsi] = { v: 2, ...(photo || { url: '' }), t: Date.now(), ...(err ? { err } : {}) };
+    writeJson(PHOTOS_FILE, photos);
+    return photo;
+  })();
+  photoLookups.set(v.mmsi, run);
+  try {
+    return await run;
+  } finally {
+    photoLookups.delete(v.mmsi);
   }
-  photos[v.mmsi] = { url, t: Date.now() };
-  writeJson(PHOTOS_FILE, photos);
-  return url;
 }
 
 // CruiseMapper's page for a passenger ship (itineraries, schedules, deck plans), for the card's vessel details. Found
@@ -578,7 +633,7 @@ async function sendAlert(v, a, h, d, leaving = false) {
   const icon = a.kind === 'watched' ? '⭐' : a.kind === 'warship' ? '⚓' : a.kind === 'cruise' ? '🛳️' : '🛟';
   const bits = [a.k.sub && a.k.sub !== 'Military' && a.kind !== 'cruise' ? a.k.sub : '', v.length ? `${v.length} m` : '', FLAGNAME(flag)].filter(Boolean).join(' · ');
   const move = [v.sog != null ? `${v.sog.toFixed(1)} kn` : '', `${d.toFixed(1)} nm from ${h.name}`, v.dest ? `destination ${v.dest}` : ''].filter(Boolean).join(', ');
-  const image = await shipPhoto(v);
+  const image = (await shipPhoto(v))?.url || '';
   return send({
     // The same tag for arriving and leaving: the departure replaces the arrival notification if it's still there.
     kind: a.kind, mmsi: v.mmsi, harbour: h.name, priority: 'high', tag: `ais-${a.kind}-${v.mmsi}`, leaving, image,
@@ -805,6 +860,12 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, hits.slice(0, 20).map(([, , v]) => publicVessel(v, c)));
   }
   if (p === '/api/cruisemapper') return cruiseMapperUrl(url.searchParams.get('name')).then((u) => sendJson(res, { url: u || null }));
+  const ph = /^\/api\/photo\/(\d{9})$/.exec(p);
+  if (ph) {
+    const v = vessels.get(Number(ph[1]));
+    if (!v) return sendJson(res, { error: 'unknown vessel' }, 404);
+    return sendJson(res, (await shipPhoto(v)) || { url: null });
+  }
   const m = /^\/api\/vessel\/(\d{9})$/.exec(p);
   if (m) {
     const v = vessels.get(Number(m[1]));
@@ -849,7 +910,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendFile(res, path.join(__dirname, 'web', 'index.html'));
   if (req.method === 'GET' && /^\/(web|dist)\/[\w.-]+$/.test(p)) return sendFile(res, path.join(__dirname, p));
   if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, { ...(CESIUM_TOKEN ? { cesium_token: CESIUM_TOKEN } : {}), ...readJson(path.join(DATA_DIR, 'card.json'), {}) });
-  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/cruisemapper?name=', '/api/tides?station=', '/api/tides/stations?q=&lat=&lon=', '/api/tides/defaults', '/api/tides/saved', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
+  if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/photo/<mmsi>', '/api/cruisemapper?name=', '/api/tides?station=', '/api/tides/stations?q=&lat=&lon=', '/api/tides/defaults', '/api/tides/saved', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });
   sendJson(res, { error: 'not found' }, 404);
 });
 

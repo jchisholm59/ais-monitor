@@ -17,6 +17,7 @@
 // ship, ferry, tug / pilot / workboat, fishing boat, sailing boat, motor yacht, warship. No model files.
 // Smooth (both views): the vessel is shown SMOOTH_DELAY_S behind live, on a curve between two real position reports
 // that matches each one's speed and course, instead of being extrapolated and corrected.
+// Photo (both views): the ship's photo from ais-monitor (Wikimedia Commons), framed bottom left; tap to enlarge.
 
 const CESIUM_VERSION = "1.146";
 const CESIUM_BASE = `https://cesium.com/downloads/cesiumjs/releases/${CESIUM_VERSION}/Build/Cesium/`;
@@ -435,11 +436,23 @@ const STYLE = `
   .br .msg .note { font-size: .85em; opacity: .8; margin-top: 8px; }
   .br .msg code { background: rgba(255,255,255,.12); padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
   .br .msg:empty { display: none; }
+  .br .photo { position: absolute; left: 12px; bottom: 62px; height: min(calc(50% - 100px), 140px); margin: 0; cursor: zoom-in; transition: height .2s; }
+  .br .photo.big { height: calc(100% - 140px); cursor: zoom-out; }
+  .br .photo img { display: block; height: 100%; width: auto; max-width: min(42vw, 260px); object-fit: cover; border: 1.5px solid rgba(255,255,255,.85); border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+  .br .photo.big img { max-width: calc(100vw - 60px); object-fit: contain; background: rgba(0,0,0,.6); }
+  .br .photo figcaption { position: absolute; left: 1.5px; right: 1.5px; bottom: 1.5px; padding: 8px 6px 3px; border-radius: 0 0 5px 5px; font-size: 9px; line-height: 1.25; background: linear-gradient(transparent, rgba(0,0,0,.75)); text-shadow: 0 1px 2px #000; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .br .photo.big figcaption { white-space: normal; font-size: 10px; }
+  .br .photo figcaption a { color: inherit; }
+  .br .photo[hidden] { display: none; }
+  /* Narrow card (phone): the buttons wrap onto two rows, so a smaller frame, above them. */
+  .br { container-type: inline-size; }
+  @container (max-width: 620px) { .br .photo { bottom: 112px; height: min(calc(50% - 150px), 90px); } .br .photo img { max-width: 36vw; } .br .photo.big { height: calc(100% - 190px); } }
 `;
 
 export class Bridge {
   // opts: { token, saveToken(token) -> Promise, color(v) -> css colour, onPick(mmsi), onExit(),
-  //         label(v) -> {nm, sub}, status(v) -> navigational status text, models (false: built-in ships only) }
+  //         label(v) -> {nm, sub}, status(v) -> navigational status text, models (false: built-in ships only),
+  //         photo(mmsi) -> Promise<{url, file, date, credit, license, page} | null> }
   constructor(container, opts) {
     this.el = container;
     this.opts = opts;
@@ -460,6 +473,7 @@ export class Bridge {
     };
     this._setView(VIEWS[saved("view", "")] ? saved("view", "") : "behind");
     this._setSmooth(saved("smooth", "1") !== "0");
+    this.photoOff = saved("photo", "1") === "0";
     this._setMode("bridge");
   }
 
@@ -521,9 +535,11 @@ export class Bridge {
             <button data-br="view" title="Camera angle: Behind, Side, Front, Above, or Auto (a new angle every few seconds). Drag to circle the vessel, wheel or pinch to zoom">View: Behind</button>
             <button data-br="smooth" title="Smooth: show the vessel ${SMOOTH_DELAY_S} s behind live, on its real path between position reports, instead of estimating ahead">Smooth</button>
             <button data-br="reset" title="Look ahead again">Look ahead</button>
+            <button data-br="photo" title="Show or hide the ship's photo (Wikimedia Commons)" hidden>Photo</button>
             <button data-br="exit">Map</button>
           </div>
         </div>
+        <figure class="photo" hidden><img alt=""><figcaption></figcaption></figure>
         <div class="credits"></div>
         <div class="mcredit" hidden></div>
         <div class="msg">Loading the 3D world…</div>
@@ -531,8 +547,9 @@ export class Bridge {
     const q = (s) => this.el.querySelector(s);
     this.$ = { scene: q(".scene"), nm: q(".ident .nm"), sub: q(".ident .sub"), tape: q(".tape"), nav: q(".nav"), sog: q(".sog b"),
       cog: q(".cog b"), hdgv: q(".cog .hdgv"), status: q(".status"), msg: q(".msg"), credits: q(".credits"), mode: q('[data-br="mode"]'),
-      mcredit: q(".mcredit"), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]') };
+      mcredit: q(".mcredit"), photo: q(".photo"), photoImg: q(".photo img"), photoCap: q(".photo figcaption"), photoBtn: q('[data-br="photo"]'), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]') };
     this._on(this.el, "click", (e) => {
+      if (e.target.closest(".photo") && !e.target.closest("a")) return void this.$.photo.classList.toggle("big");
       const b = e.target.closest("[data-br]");
       if (!b) return;
       const act = b.dataset.br;
@@ -542,6 +559,11 @@ export class Bridge {
       else if (act === "view") this._setView(VIEW_ORDER[(VIEW_ORDER.indexOf(this.view) + 1) % VIEW_ORDER.length]);
       else if (act === "smooth") this._setSmooth(!this.smooth);
       else if (act === "reset") this._resetView();
+      else if (act === "photo") {
+        this.photoOff = !this.photoOff;
+        this._save("photo", this.photoOff ? "0" : "1");
+        this._showPhoto(true);
+      }
     });
   }
 
@@ -773,7 +795,27 @@ export class Bridge {
       this.anchor = null;
       this.heading = this.camHdg = null;
       this.look = { yaw: 0, pitch: 0 };
+      this._showPhoto();
     }
+  }
+
+  // The selected vessel's photo, framed bottom left in both views (opts.photo(mmsi) -> {url, file, date, credit,
+  // license, page} or null). Tap to enlarge; the Photo button hides it (remembered). No photo: no frame, no button.
+  async _showPhoto(keep) {
+    const m = this.sel, $ = this.$;
+    if (!keep) ($.photo.hidden = true), ($.photoBtn.hidden = true), $.photo.classList.remove("big");
+    const p = m && this.opts.photo ? await this.opts.photo(m).catch(() => null) : null;
+    if (this.destroyed || m !== this.sel) return;
+    $.photoBtn.hidden = !p?.url;
+    $.photoBtn.classList.toggle("on", !!p?.url && !this.photoOff);
+    if (!p?.url) return;
+    if ($.photoImg.getAttribute("src") !== p.url) {
+      $.photoImg.src = p.url;
+      $.photoImg.alt = p.file || "";
+      const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      $.photoCap.innerHTML = `${[p.file, p.date && !String(p.file).includes(p.date) && p.date, p.credit && `© ${p.credit}`, p.license].filter(Boolean).map(esc).join(" · ")} · <a href="${esc(p.page || p.url)}" target="_blank" rel="noreferrer">Commons</a>`;
+    }
+    $.photo.hidden = !!this.photoOff;
   }
 
   _step(dir) {

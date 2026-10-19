@@ -42,7 +42,8 @@ Two pieces:
     recent track.
   - **Vessels**: a sortable list with flag, class, type, status, speed, course, distance, destination, length and
     last seen. Filter chips by class; 📍 jumps to the vessel on the map.
-  - **Vessel**: flag and country, name, class, type, size, draught, MMSI / IMO / callsign, speed, course and heading,
+  - **Vessel**: a photo of the ship when one can be found (see *Photos* below; with its photographer and licence, tap for
+    full size), flag and country, name, class, type, size, draught, MMSI / IMO / callsign, speed, course and heading,
     distance and bearing from the location, the destination and ETA the crew reported, a speed chart, and links to
     MarineTraffic, VesselFinder and MyShipTracking, plus CruiseMapper (itineraries, schedules, deck plans) for
     cruise ships it knows: the monitor finds the page with CruiseMapper's own ship search and caches it.
@@ -167,10 +168,16 @@ listed on the Alerts tab, where a tap stops watching one. Example:
 > Passenger / ferry · 104 m · Portugal
 > 9.8 kn, 5.9 nm from Halifax Harbour, destination UY MVD
 
-**Photos**: both alerts carry a photo of the ship when one can be found: the main image of the ship's
-[Wikidata](https://www.wikidata.org/) item (a hand-picked exterior shot, not a random one from the ship's gallery),
-found by IMO number, then MMSI, then by name when the item is described as a ship, frigate and so on. Most cruise
-ships and warships have one; small craft usually don't, and alert without. Lookups are cached in `data/photos.json`.
+**Photos**: both alerts carry a photo of the ship when one can be found, and the card shows it on the Vessel tab and
+as a small framed picture in the Bridge and Follow views (tap to enlarge; the **Photo** button hides it). First choice
+is the main image of the ship's [Wikidata](https://www.wikidata.org/) item (a hand-picked exterior shot), found by IMO
+number, then MMSI; then the newest landscape photo in [Wikimedia Commons](https://commons.wikimedia.org/)' "IMO
+<number>" category, which ship spotters fill for many merchant ships with no Wikidata photo; then a Wikidata item
+found by name when it's described as a ship, frigate and so on. Each comes with its photographer and licence, shown
+under it. Cruise ships, warships, coast guard ships, ferries and about half of the larger merchant ships have one;
+small craft (no IMO number) rarely do. A photo can show the ship under an earlier name or livery. Lookups are cached
+in `data/photos.json` (30 days; 7 when nothing was found). MarineTraffic and VesselFinder have more photos but no
+free API, so the card links to them instead.
 
 Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-automation.yaml)) and/or to ntfy (see
 [Without Home Assistant](#without-home-assistant)). The HA automation sends
@@ -322,6 +329,7 @@ centred (inside the areas the monitor receives).
 | `GET /api/search?q=` | vessels by name, MMSI, IMO or callsign |
 | `GET / POST /api/locations` | the locations; POST `{op: "add" \| "remove" \| "default", name, lat, lon}` |
 | `GET /api/vessel/<mmsi>?lat=&lon=` | one vessel, with its last 2 hours of track |
+| `GET /api/photo/<mmsi>` | the ship's photo: `{url, full, page, file, date, credit, license}`, or `{url: null}` |
 | `GET / PUT /api/settings` | alert settings |
 | `GET /api/alerts` | last 100 alerts |
 | `POST /api/test-alert` | send a test notification |

@@ -554,6 +554,11 @@ class ShipsCard extends HTMLElement {
         .vflag { font-size: 3.2em; line-height: 1; }
         .vname { font-size: 1.9em; font-weight: 600; line-height: 1.1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .vname .ctag { font-size: .42em; } .vname .pill { font-size: .42em; }
+        .vphoto { margin-top: 12px; }
+        .vphoto:empty { display: none; }
+        .vphoto img { display: block; width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; background: var(--secondary-background-color, rgba(127,127,127,.12)); }
+        .vphoto .cap { font-size: .75em; color: var(--secondary-text-color); margin-top: 4px; }
+        .vphoto .cap a { color: inherit; }
         .vsub { font-size: .9em; color: var(--secondary-text-color); margin-top: 3px; }
         .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
         .tile { background: var(--secondary-background-color); border-radius: 12px; padding: 9px 11px; min-width: 0; }
@@ -864,6 +869,7 @@ class ShipsCard extends HTMLElement {
           sub: [v.cls === "mil" && v.navy ? v.navy : v.sub || v.typeLabel, v.length ? `${v.length} m` : "", v.dest ? `→ ${v.dest}` : ""].filter(Boolean).join(" · "),
         }),
         status: (v) => STATUS[v.status] || "",
+        photo: (mmsi) => this.photo(mmsi),
         models: this._config.ship_models !== false,
       });
       this._bridge.setData(this._bridgeList(), this._sel);
@@ -1553,6 +1559,7 @@ class ShipsCard extends HTMLElement {
         <div><div class="vname">${esc(v.name || `MMSI ${v.mmsi}`)}${this._tag(v)}<span class="pill dim">${esc(status)}</span></div>
           <div class="vsub">${esc([sub, v.length ? `${v.length} × ${v.beam || "?"} m` : "", v.draught ? `draught ${v.draught} m` : "", country(v.flag)].filter(Boolean).join(" · "))}</div>
           <div class="vsub">MMSI ${v.mmsi}${v.imo ? ` · IMO ${v.imo}` : ""}${v.callsign ? ` · callsign ${esc(v.callsign)}` : ""}${v.classB ? " · class B transponder" : ""}</div></div></div>
+      <div class="vphoto" data-photo>${this._photoHtml(this._photoCache?.get(v.mmsi)?.p)}</div>
       <div class="tiles">
         ${tile("Speed", v.sog != null ? `${num(v.sog, 1)}<small>kn</small>` : "–", v.sog != null ? `${num(v.sog * 1.852, 1)} km/h` : "")}
         ${tile("Course", v.cog != null ? `${num(v.cog)}°` : "–", v.hdg != null ? `heading ${v.hdg}° ${compass(v.hdg)}` : "")}
@@ -1576,6 +1583,7 @@ class ShipsCard extends HTMLElement {
         <a class="btn" data-cm style="display:none" target="_blank" rel="noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>CruiseMapper</a>
       </div>`;
     this._cruiseMapper(v, box.querySelector("[data-cm]"));
+    this._fillPhoto(v.mmsi, box.querySelector("[data-photo]"));
     this._spark(this.$("c-sog"), (v.track || []).filter((p) => p.sog != null).map((p) => ({ t: p.t / 1000, v: p.sog })));
   }
 
@@ -1594,6 +1602,32 @@ class ShipsCard extends HTMLElement {
       this._cm.set(v.mmsi, url);
     }
     if (url && a.isConnected) (a.href = url), (a.style.display = "");
+  }
+
+  // A photo of the ship (Wikidata / Wikimedia Commons, through the monitor's /api/photo; an older monitor has none and
+  // the space stays empty). Remembered per vessel for the card's life, so re-renders don't flicker or ask again.
+  photo(mmsi) {
+    this._photoCache = this._photoCache || new Map();
+    let c = this._photoCache.get(mmsi);
+    if (!c) {
+      c = { p: undefined };
+      c.req = this._mon(`/api/photo/${mmsi}`).then((d) => (c.p = d?.url ? d : null), () => (c.p = null));
+      this._photoCache.set(mmsi, c);
+    }
+    return c.p !== undefined ? Promise.resolve(c.p) : c.req;
+  }
+
+  _photoHtml(p) {
+    if (!p?.url) return "";
+    const cap = [p.file, p.date && !String(p.file).includes(p.date) && p.date, p.credit && `© ${p.credit}`, p.license].filter(Boolean).map(esc).join(" · ");
+    return `<a href="${esc(p.full || p.url)}" target="_blank" rel="noreferrer" title="Open the full-size photo"><img src="${esc(p.url)}" alt="${esc(p.file || "Photo of the ship")}" loading="lazy"></a>
+      <div class="cap">${cap} · <a href="${esc(p.page || p.full || p.url)}" target="_blank" rel="noreferrer">Wikimedia Commons</a>. May show the ship under an earlier name or livery.</div>`;
+  }
+
+  async _fillPhoto(mmsi, el) {
+    if (!el || el.firstChild) return;
+    const p = await this.photo(mmsi);
+    if (el.isConnected && !el.firstChild && this._sel === mmsi) el.innerHTML = this._photoHtml(p);
   }
 
   _spark(el, pts) {
