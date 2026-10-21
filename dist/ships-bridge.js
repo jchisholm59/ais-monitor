@@ -427,6 +427,12 @@ const STYLE = `
   .br .btns button { font: inherit; font-size: .85em; color: #fff; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
   .br .btns button:hover { background: rgba(255,255,255,.18); }
   .br .btns button.on { background: var(--primary-color, #03a9f4); border-color: transparent; }
+  .br .btns .sql { display: flex; align-items: center; gap: 6px; font-size: .85em; color: #fff; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 2px 10px; }
+  .br .btns .sql[hidden] { display: none; }
+  .br .btns .sql input { width: 90px; margin: 0; }
+  .br .btns .sql b { font-weight: normal; min-width: 3.6em; }
+  .br .btns .sql i { width: 9px; height: 9px; border-radius: 50%; background: #555; }
+  .br .btns .sql.open i { background: #7CFC9A; box-shadow: 0 0 6px #7CFC9A; }
   .br .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; line-height: 1.5; background: #0b1020; }
   .br .msg > div { max-width: 560px; text-align: left; }
   .br .msg ol { margin: 8px 0 0; padding-left: 22px; } .br .msg li { margin: 4px 0; }
@@ -509,8 +515,14 @@ class SdrListener {
       } catch (e) {
         return;
       }
+      if (m.type === "status") {
+        const open = m.sq == null || !!m.sqOpen; // no squelch: always open
+        if (open !== this.sqOpen) (this.sqOpen = open), this.onChange("status");
+        return;
+      }
       if (m.type !== "state") return;
       this.radio = m.state;
+      this.onChange("state");
       if (!this.prev) {
         this.prev = { freq: m.state.freq, mode: m.state.mode, bw: m.state.bw };
         this.tune(this.ch);
@@ -520,6 +532,11 @@ class SdrListener {
     ws.onclose = () => {
       if (this.on && this.ws === ws) this._fail("the receiver closed the connection");
     };
+  }
+  // The squelch slider: Pi-SDR keeps it per mode (so air and marine each have their own). 0 = off.
+  setSq(db) {
+    this.sqSet = null; // the listener's own choice now: Stop leaves it
+    this._send({ cmd: "set", sq: db > 0 ? db : null });
   }
   _fail(msg) {
     this.err = msg;
@@ -618,13 +635,30 @@ export class Bridge {
     this.photoOff = saved("photo", "1") === "0";
     this._setMode("bridge");
     if (opts.sdr?.url) {
+      // Squelch slider: shown live while dragging, sent to the receiver at most 4 times a second and on release.
+      let last = 0, timer = null;
+      const send = () => (clearTimeout(timer), (timer = null), (last = performance.now()), this.sdr.setSq(Number(this.$.sqIn.value)));
+      this._on(this.$.sqIn, "input", () => {
+        this._sqDrag = true;
+        this._sqShow(Number(this.$.sqIn.value));
+        if (performance.now() - last > 250) send();
+        else timer ??= setTimeout(send, 250);
+      });
+      this._on(this.$.sqIn, "change", () => {
+        send();
+        this._sqDrag = false;
+      });
       this.sdr = new SdrListener(opts.sdr, () => this._sdrButtons(), "nfm");
       this._sdrButtons();
     }
   }
 
-  _sdrButtons() {
+  _sdrButtons(kind) {
     const s = this.sdr, c = s.channel;
+    this.$.sql.hidden = !s.on;
+    this.$.sql.classList.toggle("open", s.on && !!s.sqOpen);
+    if (kind === "status") return;
+    if (!this._sqDrag && s.radio) this._sqShow(s.radio.sq ?? 0);
     this.$.listen.hidden = false;
     this.$.listen.classList.toggle("on", s.on);
     this.$.listen.textContent = s.on ? "■ Stop" : s.err ? "🎧 Listen ⚠" : "🎧 Listen";
@@ -668,6 +702,11 @@ export class Bridge {
     this._save("smooth", this.smooth ? "1" : "0");
   }
 
+  _sqShow(v) {
+    this.$.sqIn.value = v;
+    this.$.sqVal.textContent = v ? v + " dB" : "off";
+  }
+
   _resetView() {
     if (this.mode === "bridge") (this.look = { yaw: 0, pitch: 0 }), (this.fov = 60);
     else this._setView(this.view === "custom" ? "behind" : this.view);
@@ -694,6 +733,7 @@ export class Bridge {
             <button data-br="photo" title="Show or hide the ship's photo (Wikimedia Commons)" hidden>Photo</button>
             <button data-br="listen" hidden></button>
             <button data-br="chan" hidden title="Next channel"></button>
+            <label class="sql" hidden title="Squelch: how far above the noise a signal must be to be heard (0 = off). The light shows it open. Saved in Pi-SDR for this mode"><i></i>SQL <input type="range" min="0" max="40" step="1"><b></b></label>
             <button data-br="exit">Map</button>
           </div>
         </div>
@@ -706,7 +746,7 @@ export class Bridge {
     this.$ = { scene: q(".scene"), nm: q(".ident .nm"), sub: q(".ident .sub"), tape: q(".tape"), nav: q(".nav"), sog: q(".sog b"),
       cog: q(".cog b"), hdgv: q(".cog .hdgv"), status: q(".status"), msg: q(".msg"), credits: q(".credits"), mode: q('[data-br="mode"]'),
       mcredit: q(".mcredit"), photo: q(".photo"), photoImg: q(".photo img"), photoCap: q(".photo figcaption"), photoBtn: q('[data-br="photo"]'), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]'),
-      listen: q('[data-br="listen"]'), chan: q('[data-br="chan"]') };
+      listen: q('[data-br="listen"]'), chan: q('[data-br="chan"]'), sql: q(".sql"), sqIn: q(".sql input"), sqVal: q(".sql b") };
     this._on(this.el, "click", (e) => {
       if (e.target.closest(".photo") && !e.target.closest("a")) return void this.$.photo.classList.toggle("big");
       const b = e.target.closest("[data-br]");
