@@ -74,6 +74,11 @@ Two pieces:
     cockpit view, after [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view)'s. GEV's own cockpit
     flies aircraft only (selecting a vessel there flies the camera to it once, without following it; checked against
     its source in October 2026), so riding along on a ship's bridge, live on its real course, is this card's own.
+  - **Listen** (optional, with a [Pi-SDR](https://github.com/jchisholm59/Pi-SDR) receiver): live marine VHF in the
+    browser, from a panel on the Map tab that moves into the Bridge. A button per channel (Ch 16, harbour traffic,
+    weather...) lights up the moment that channel is on the air; **Scan** follows whoever is talking, **Lock** or a tap
+    stays on one, **SQL** is the squelch, and **⊘** keeps a channel out of the scan (the weather broadcast never stops).
+    See `sdr` in [Configuration](#configuration).
   - **Alerts**: phone alerts for **warships** and **cruise ships** (optionally Coast Guard ships) **entering a
     harbour**, and which harbours to watch.
 - **`ais-monitor`**: a small always-on Node service (no dependencies) that holds one connection to
@@ -193,6 +198,8 @@ card's Alerts tab; there's a test button and the recent alerts.
   simultaneous connections, so run one monitor per key.
 - **Home Assistant** for the card, **or** nothing: the monitor serves the dashboard itself and can send alerts through
   ntfy (see [Without Home Assistant](#without-home-assistant)).
+- Optional, for **Listen**: a [Pi-SDR](https://github.com/jchisholm59/Pi-SDR) receiver (an SDRplay RSPduo on a
+  Raspberry Pi, with a marine VHF antenna) on your network.
 - For the monitor: **Node.js 22+** (for its built-in WebSocket) on any always-on machine, kept running with pm2 or
   systemd.
 
