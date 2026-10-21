@@ -203,6 +203,8 @@ card's Alerts tab; there's a test button and the recent alerts.
 git clone https://github.com/jchisholm59/ais-monitor.git
 cd ais-monitor && ./install.sh
 ```
+Run it as yourself, not with `sudo`: it asks for your password only if installing pm2 needs it (a distribution's
+Node.js keeps global npm packages in a root-owned folder). Addresses can be typed with or without `http://`.
 Run `./install.sh` again any time to change those settings. **On HA OS**, use the add-on instead (see
 [Three ways to use it](#three-ways-to-use-it)).
 

@@ -14,6 +14,12 @@ try {
 } catch (e) {}
 
 const env = (k, d = '') => (process.env[k] ?? '').trim() || d;
+// Addresses typed without a scheme ("192.168.1.20", "host.local:8080") get http:// (https:// for ntfy, whose
+// public server needs it), so they work either way.
+const envUrl = (k, d = '', scheme = 'http') => {
+  const v = env(k, d);
+  return v && !/^[a-z][a-z\d+.-]*:\/\//i.test(v) ? `${scheme}://${v}` : v;
+};
 const num = (k, d) => (env(k) !== '' && Number.isFinite(Number(env(k))) ? Number(env(k)) : d);
 const PORT = num('PORT', 7110);
 const KEY = env('AISSTREAM_KEY');
@@ -51,12 +57,12 @@ function computeAreas() {
 }
 computeAreas();
 const CLOSEST = num('CLOSEST', 50);
-const HA_WEBHOOK = env('HA_WEBHOOK');
+const HA_WEBHOOK = envUrl('HA_WEBHOOK');
 // ntfy (https://ntfy.sh, or your own ntfy server): phone alerts without Home Assistant. NTFY_URL is the topic URL,
 // e.g. https://ntfy.sh/my-ships-7f3k; NTFY_TOKEN only for a protected server or topic. Either or both can be set.
-const NTFY_URL = env('NTFY_URL');
+const NTFY_URL = envUrl('NTFY_URL', '', 'https');
 const NTFY_TOKEN = env('NTFY_TOKEN');
-const DASHBOARD_URL = env('DASHBOARD_URL'); // where tapping an ntfy alert goes, e.g. http://granite:7110/
+const DASHBOARD_URL = envUrl('DASHBOARD_URL'); // where tapping an ntfy alert goes, e.g. http://granite:7110/
 const AUTH = require('./auth')(env('ADMIN_PASSWORD'), 'ais-monitor', env('ADMIN_TRUSTED_IPS')); // guests can look, only the owner can change
 const CESIUM_TOKEN = env('CESIUM_TOKEN'); // the Bridge tab's token for everyone using the dashboard (and guests)
 
