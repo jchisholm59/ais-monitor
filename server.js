@@ -7,6 +7,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 try {
   process.loadEnvFile(path.join(__dirname, '.env'));
@@ -733,7 +734,7 @@ function body(req) {
     });
   });
 }
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.glb': 'model/gltf-binary' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.gif': 'image/gif', '.css': 'text/css; charset=utf-8', '.wasm': 'application/wasm', '.xml': 'application/xml', '.glb': 'model/gltf-binary' };
 // Files are versioned by the card's modification time (index.html's __V__), so browsers pick up a new card at once.
 function sendFile(res, file) {
   fs.readFile(file, (err, buf) => {
@@ -743,6 +744,37 @@ function sendFile(res, file) {
     // Ship models (dist/ship-*.glb, up to ~2 MB) are cached for a week: a changed model gets a new file name.
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.glb' ? 'public, max-age=604800' : 'no-cache', ...CORS });
     res.end(buf);
+  });
+}
+
+// CesiumJS for the 3D views (dist/cesium/, 13 MB, shipped with the card). Revalidated by ETag, so a new Cesium version
+// is picked up at once (its Workers too), and text files are gzipped once and kept in memory.
+const CESIUM_DIR = path.join(__dirname, 'dist', 'cesium');
+const cesiumGz = new Map();
+function sendCesium(req, res, rel) {
+  const file = path.join(CESIUM_DIR, rel);
+  if (!file.startsWith(CESIUM_DIR + path.sep)) return sendJson(res, { error: 'not found' }, 404);
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) return sendJson(res, { error: 'not found' }, 404);
+    const etag = `"${st.size}-${Math.round(st.mtimeMs)}"`;
+    const ext = path.extname(file);
+    const gzip = /^\.(js|css|json|svg|xml)$/.test(ext) && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    const h = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: etag, Vary: 'Accept-Encoding', ...CORS };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, h);
+      return res.end();
+    }
+    fs.readFile(file, (err, buf) => {
+      if (err) return sendJson(res, { error: 'not found' }, 404);
+      if (gzip) {
+        const c = cesiumGz.get(file);
+        if (c?.etag === etag) buf = c.buf;
+        else cesiumGz.set(file, { etag, buf: (buf = zlib.gzipSync(buf)) });
+        h['Content-Encoding'] = 'gzip';
+      }
+      res.writeHead(200, h);
+      res.end(buf);
+    });
   });
 }
 
@@ -908,6 +940,7 @@ const server = http.createServer(async (req, res) => {
   }
   // The standalone dashboard: the card without Home Assistant (web/), the card itself (dist/), optional settings.
   if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendFile(res, path.join(__dirname, 'web', 'index.html'));
+  if (req.method === 'GET' && p.startsWith('/dist/cesium/')) return sendCesium(req, res, p.slice('/dist/cesium/'.length));
   if (req.method === 'GET' && /^\/(web|dist)\/[\w.-]+$/.test(p)) return sendFile(res, path.join(__dirname, p));
   if (req.method === 'GET' && p === '/card-config.json') return sendJson(res, { ...(CESIUM_TOKEN ? { cesium_token: CESIUM_TOKEN } : {}), ...readJson(path.join(DATA_DIR, 'card.json'), {}) });
   if (p === '/api') return sendJson(res, { service: 'ais-monitor', endpoints: ['/api/status', '/api/vessels?lat=&lon=&n=', '/api/vessel/<mmsi>', '/api/photo/<mmsi>', '/api/cruisemapper?name=', '/api/tides?station=', '/api/tides/stations?q=&lat=&lon=', '/api/tides/defaults', '/api/tides/saved', '/api/settings', '/api/alerts', '/api/test-alert', '/api/auth', '/api/login'] });

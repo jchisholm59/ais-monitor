@@ -230,9 +230,9 @@ curl http://localhost:7110/api/status
 **With HACS:** HACS → ⋮ → Custom repositories → add `https://github.com/jchisholm59/ais-monitor`, type *Dashboard*,
 then download **Ships Card (AIS)**.
 
-**By hand:** copy `dist/ships-card.js` and `dist/ships-bridge.js` to `/config/www/` and add `/local/ships-card.js` as a
-*JavaScript module* resource (Settings → Dashboards → ⋮ → Resources). `ships-bridge.js` is loaded by the card when
-its Bridge tab opens; it isn't a resource of its own.
+**By hand:** copy everything in `dist/` (the cards, the ship models and the `cesium/` folder) to `/config/www/` and add
+`/local/ships-card.js` as a *JavaScript module* resource (Settings → Dashboards → ⋮ → Resources). `ships-bridge.js`
+and CesiumJS are loaded by the card when its Bridge tab opens; they aren't resources of their own.
 
 **Then** add a view (a *Panel* view gives the map the whole screen) with:
    ```yaml

@@ -4,8 +4,8 @@
 // Tides tab: Canadian Hydrographic Service tides at the locations (tides-card.js, loaded by the card; the monitor relays
 // CHS, whose certificate browsers no longer trust).
 // Bridge tab: the selected vessel's view from its bridge over Google's photorealistic 3D world (ships-bridge.js,
-// CesiumJS from Cesium's CDN, loaded only when the tab opens; needs a Cesium ion token, pasted into the tab).
-// Install: copy ships-card.js, ships-bridge.js and tides-card.js to /config/www/, add /local/ships-card.js as a JavaScript module
+// CesiumJS from cesium/ next to this file, loaded only when the tab opens; needs a Cesium ion token, pasted into the tab).
+// Install: copy ships-card.js, ships-bridge.js, tides-card.js and the cesium/ folder to /config/www/, add /local/ships-card.js as a JavaScript module
 // resource (ships-bridge.js is loaded by the card, not a resource of its own).
 
 const DEFAULTS = {
