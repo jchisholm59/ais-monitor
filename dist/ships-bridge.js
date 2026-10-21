@@ -427,12 +427,6 @@ const STYLE = `
   .br .btns button { font: inherit; font-size: .85em; color: #fff; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
   .br .btns button:hover { background: rgba(255,255,255,.18); }
   .br .btns button.on { background: var(--primary-color, #03a9f4); border-color: transparent; }
-  .br .btns .sql { display: flex; align-items: center; gap: 6px; font-size: .85em; color: #fff; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 2px 10px; }
-  .br .btns .sql[hidden] { display: none; }
-  .br .btns .sql input { width: 90px; margin: 0; }
-  .br .btns .sql b { font-weight: normal; min-width: 3.6em; }
-  .br .btns .sql i { width: 9px; height: 9px; border-radius: 50%; background: #555; }
-  .br .btns .sql.open i { background: #7CFC9A; box-shadow: 0 0 6px #7CFC9A; }
   .br .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; line-height: 1.5; background: #0b1020; }
   .br .msg > div { max-width: 560px; text-align: left; }
   .br .msg ol { margin: 8px 0 0; padding-left: 22px; } .br .msg li { margin: 4px 0; }
@@ -456,164 +450,11 @@ const STYLE = `
   @container (max-width: 620px) { .br .photo { bottom: 112px; height: min(calc(50% - 150px), 90px); } .br .photo img { max-width: 36vw; } .br .photo.big { height: calc(100% - 190px); } }
 `;
 
-// Listen: marine VHF through a Pi-SDR receiver (github.com/jchisholm59/Pi-SDR), set up with the card's `sdr` option:
-//   sdr: { url: "http://192.168.1.30:8073", channels: [{ name: "Ch 16", freq: 156.8 }, { name: "Ch 12", freq: 156.6 }] }
-// (channels default to NFM). A channel with `area: [south, west, north, east]` (degrees) is switched to when the
-// followed vessel sails into that box, and left (back to the channel before) when it sails out: e.g. the harbour's
-// Vessel Traffic Services channel. The same class as skyaware-cockpit.js's: keep the two in step.
-// Its WebSocket carries 48 kHz PCM ([2][channels][3 bytes][int16...]), played on scheduled Web Audio buffers as in
-// Pi-SDR's own page. Tuning it moves the receiver for everyone; Stop puts it back where it was if nobody moved it since.
-// A page served over https can't open the ws:// of a plain-http receiver (mixed content).
-const SQ_DEFAULT = { am: 6, nfm: 4 }; // dB above the channel noise, when the receiver has no squelch for the mode
-class SdrListener {
-  constructor(cfg, onChange, defMode = "am") {
-    this.defMode = defMode;
-    this.url = String(cfg.url || "").replace(/\/+$/, "");
-    this.channels = (cfg.channels || []).map((c) => ({ name: String(c.name || c.freq), hz: Math.round(Number(c.freq) * (Number(c.freq) < 1e4 ? 1e6 : 1)), mode: c.mode || this.defMode, area: Array.isArray(c.area) && c.area.length === 4 ? c.area.map(Number) : null }))
-      .filter((c) => c.hz > 0);
-    this.onChange = onChange;
-    this.on = false;
-    this.ch = 0;
-    this.err = "";
-  }
-  get channel() {
-    return this.channels[this.ch];
-  }
-  async start() {
-    if (!this.ctx) {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
-      this.gain = this.ctx.createGain();
-      this.gain.connect(this.ctx.destination);
-    }
-    await this.ctx.resume(); // inside the click, so the browser allows sound
-    this.on = true;
-    this.err = "";
-    this.next = 0;
-    this.prev = null;
-    this.sqSet = null;
-    // Closing the tab (or leaving the page) acts like Stop: the receiver goes back where it was.
-    this._onHide = () => this.on && this.stop();
-    window.addEventListener("pagehide", this._onHide);
-    this._connect();
-    this.onChange();
-  }
-  _connect() {
-    let ws;
-    try {
-      ws = this.ws = new WebSocket(this.url.replace(/^http/, "ws") + "/ws");
-    } catch (e) {
-      return this._fail(location.protocol === "https:" && this.url.startsWith("http:") ? "an https page can't reach an http receiver" : e.message);
-    }
-    ws.binaryType = "arraybuffer";
-    ws.onopen = () => {
-      this._send({ cmd: "spectrum", on: false });
-      this._send({ cmd: "audio", on: true });
-    };
-    ws.onmessage = (ev) => {
-      if (typeof ev.data !== "string") return void (new Uint8Array(ev.data, 0, 1)[0] === 2 && this._play(ev.data));
-      let m;
-      try {
-        m = JSON.parse(ev.data);
-      } catch (e) {
-        return;
-      }
-      if (m.type === "status") {
-        const open = m.sq == null || !!m.sqOpen; // no squelch: always open
-        if (open !== this.sqOpen) (this.sqOpen = open), this.onChange("status");
-        return;
-      }
-      if (m.type !== "state") return;
-      this.radio = m.state;
-      this.onChange("state");
-      if (!this.prev) {
-        this.prev = { freq: m.state.freq, mode: m.state.mode, bw: m.state.bw };
-        this.tune(this.ch);
-      }
-    };
-    ws.onerror = () => this._fail("can't reach the receiver at " + this.url);
-    ws.onclose = () => {
-      if (this.on && this.ws === ws) this._fail("the receiver closed the connection");
-    };
-  }
-  // The squelch slider: Pi-SDR keeps it per mode (so air and marine each have their own). 0 = off.
-  setSq(db) {
-    this.sqSet = null; // the listener's own choice now: Stop leaves it
-    this._send({ cmd: "set", sq: db > 0 ? db : null });
-  }
-  _fail(msg) {
-    this.err = msg;
-    this.stop();
-  }
-  _send(o) {
-    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(o));
-  }
-  tune(i) {
-    if (!this.channels.length) return this.onChange(); // no channels: listen to whatever it's tuned to
-    this.ch = ((i % this.channels.length) + this.channels.length) % this.channels.length;
-    const c = this.channel;
-    if (c && this.prev) {
-      const r = this.radio || {};
-      if (r.mode !== c.mode) this._send({ cmd: "mode", mode: c.mode });
-      // Squelch: the receiver's own setting for the mode (dB above the channel noise, so it follows the noise). None
-      // there, or none saved (Pi-SDR would carry over the current mode's, e.g. FM's): set a usual one, undone by Stop.
-      const sq = r.mode === c.mode ? r.sq : r.modeSq?.[c.mode];
-      if (sq == null) {
-        this._send({ cmd: "set", sq: SQ_DEFAULT[c.mode] ?? 6 });
-        this.sqSet = c.mode;
-      }
-      this._send({ cmd: "tune", freq: c.hz });
-    }
-    this.onChange();
-  }
-  stop() {
-    const ws = this.ws;
-    this.ws = null;
-    if (ws) {
-      // put the receiver back, unless someone else has tuned it since
-      if (this.prev && ws.readyState === 1 && this.radio?.freq === this.channel?.hz) {
-        if (this.sqSet && this.radio.mode === this.sqSet) ws.send(JSON.stringify({ cmd: "set", sq: null }));
-        if (this.prev.mode !== this.radio.mode) ws.send(JSON.stringify({ cmd: "mode", mode: this.prev.mode, bw: this.prev.bw }));
-        ws.send(JSON.stringify({ cmd: "tune", freq: this.prev.freq }));
-      }
-      try {
-        ws.close();
-      } catch (e) {}
-    }
-    if (this._onHide) window.removeEventListener("pagehide", this._onHide);
-    this._onHide = null;
-    this.on = false;
-    this.onChange();
-  }
-  _play(buf) {
-    if (!this.on || !this.ctx) return;
-    const ch = new Uint8Array(buf, 1, 1)[0];
-    const pcm = new Int16Array(buf.slice(5));
-    const n = pcm.length / ch;
-    const ab = this.ctx.createBuffer(ch, n, 48000);
-    for (let c = 0; c < ch; c++) {
-      const d = ab.getChannelData(c);
-      for (let i = 0; i < n; i++) d[i] = pcm[i * ch + c] / 32768;
-    }
-    const now = this.ctx.currentTime;
-    if (this.next < now + 0.03) this.next = now + 0.15; // underrun (or first): rebuild a small cushion
-    if (this.next > now + 0.6) return; // too far ahead (clock drift): drop this chunk to catch up
-    const src = this.ctx.createBufferSource();
-    src.buffer = ab;
-    src.connect(this.gain);
-    src.start(this.next);
-    this.next += ab.duration;
-  }
-  destroy() {
-    if (this.on) this.stop();
-    this.ctx?.close().catch(() => {});
-  }
-}
-
 export class Bridge {
   // opts: { token, saveToken(token) -> Promise, color(v) -> css colour, onPick(mmsi), onExit(),
   //         label(v) -> {nm, sub}, status(v) -> navigational status text, models (false: built-in ships only),
   //         photo(mmsi) -> Promise<{url, file, date, credit, license, page} | null>,
-  //         sdr {url, channels} (the Listen button; see SdrListener) }
+  //         sdr: the card's SdrListener and its panel {listener, panel} (sdr-listen.js; shown here while open) }
   constructor(container, opts) {
     this.el = container;
     this.opts = opts;
@@ -636,37 +477,8 @@ export class Bridge {
     this._setSmooth(saved("smooth", "1") !== "0");
     this.photoOff = saved("photo", "1") === "0";
     this._setMode("bridge");
-    if (opts.sdr?.url) {
-      // Squelch slider: shown live while dragging, sent to the receiver at most 4 times a second and on release.
-      let last = 0, timer = null;
-      const send = () => (clearTimeout(timer), (timer = null), (last = performance.now()), this.sdr.setSq(Number(this.$.sqIn.value)));
-      this._on(this.$.sqIn, "input", () => {
-        this._sqDrag = true;
-        this._sqShow(Number(this.$.sqIn.value));
-        if (performance.now() - last > 250) send();
-        else timer ??= setTimeout(send, 250);
-      });
-      this._on(this.$.sqIn, "change", () => {
-        send();
-        this._sqDrag = false;
-      });
-      this.sdr = new SdrListener(opts.sdr, () => this._sdrButtons(), "nfm");
-      this._sdrButtons();
-    }
-  }
-
-  _sdrButtons(kind) {
-    const s = this.sdr, c = s.channel;
-    this.$.sql.hidden = !s.on;
-    this.$.sql.classList.toggle("open", s.on && !!s.sqOpen);
-    if (kind === "status") return;
-    if (!this._sqDrag && s.radio) this._sqShow(s.radio.sq ?? 0);
-    this.$.listen.hidden = false;
-    this.$.listen.classList.toggle("on", s.on);
-    this.$.listen.textContent = s.on ? "■ Stop" : s.err ? "🎧 Listen ⚠" : "🎧 Listen";
-    this.$.listen.title = s.err ? "Listen: " + s.err : "Listen to marine VHF on the Pi-SDR receiver (" + s.url + ")";
-    this.$.chan.hidden = !s.on || s.channels.length < 2;
-    if (c) this.$.chan.textContent = c.name + " " + (c.hz / 1e6).toFixed(3);
+    this.sdr = opts.sdr?.listener || null;
+    if (opts.sdr?.panel) opts.sdr.panel.mount(this.$.br, "view");
   }
 
   _save(k, v) {
@@ -704,11 +516,6 @@ export class Bridge {
     this._save("smooth", this.smooth ? "1" : "0");
   }
 
-  _sqShow(v) {
-    this.$.sqIn.value = v;
-    this.$.sqVal.textContent = v ? v + " dB" : "off";
-  }
-
   _resetView() {
     if (this.mode === "bridge") (this.look = { yaw: 0, pitch: 0 }), (this.fov = 60);
     else this._setView(this.view === "custom" ? "behind" : this.view);
@@ -733,9 +540,6 @@ export class Bridge {
             <button data-br="smooth" title="Smooth: show the vessel ${SMOOTH_DELAY_S} s behind live, on its real path between position reports, instead of estimating ahead">Smooth</button>
             <button data-br="reset" title="Look ahead again">Look ahead</button>
             <button data-br="photo" title="Show or hide the ship's photo (Wikimedia Commons)" hidden>Photo</button>
-            <button data-br="listen" hidden></button>
-            <button data-br="chan" hidden title="Next channel"></button>
-            <label class="sql" hidden title="Squelch: how far above the noise a signal must be to be heard (0 = off). The light shows it open. Saved in Pi-SDR for this mode"><i></i>SQL <input type="range" min="0" max="40" step="1"><b></b></label>
             <button data-br="exit">Map</button>
           </div>
         </div>
@@ -745,10 +549,9 @@ export class Bridge {
         <div class="msg">Loading the 3D world…</div>
       </div>`;
     const q = (s) => this.el.querySelector(s);
-    this.$ = { scene: q(".scene"), nm: q(".ident .nm"), sub: q(".ident .sub"), tape: q(".tape"), nav: q(".nav"), sog: q(".sog b"),
+    this.$ = { br: q(".br"), scene: q(".scene"), nm: q(".ident .nm"), sub: q(".ident .sub"), tape: q(".tape"), nav: q(".nav"), sog: q(".sog b"),
       cog: q(".cog b"), hdgv: q(".cog .hdgv"), status: q(".status"), msg: q(".msg"), credits: q(".credits"), mode: q('[data-br="mode"]'),
-      mcredit: q(".mcredit"), photo: q(".photo"), photoImg: q(".photo img"), photoCap: q(".photo figcaption"), photoBtn: q('[data-br="photo"]'), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]'),
-      listen: q('[data-br="listen"]'), chan: q('[data-br="chan"]'), sql: q(".sql"), sqIn: q(".sql input"), sqVal: q(".sql b") };
+      mcredit: q(".mcredit"), photo: q(".photo"), photoImg: q(".photo img"), photoCap: q(".photo figcaption"), photoBtn: q('[data-br="photo"]'), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]') };
     this._on(this.el, "click", (e) => {
       if (e.target.closest(".photo") && !e.target.closest("a")) return void this.$.photo.classList.toggle("big");
       const b = e.target.closest("[data-br]");
@@ -760,8 +563,6 @@ export class Bridge {
       else if (act === "view") this._setView(VIEW_ORDER[(VIEW_ORDER.indexOf(this.view) + 1) % VIEW_ORDER.length]);
       else if (act === "smooth") this._setSmooth(!this.smooth);
       else if (act === "reset") this._resetView();
-      else if (act === "listen") this.sdr.on ? this.sdr.stop() : this.sdr.start().catch((e) => this.sdr._fail(e.message));
-      else if (act === "chan") this.sdr.tune(this.sdr.ch + 1);
       else if (act === "photo") {
         this.photoOff = !this.photoOff;
         this._save("photo", this.photoOff ? "0" : "1");
@@ -1003,17 +804,18 @@ export class Bridge {
     if (this.sdr) this._sdrArea(this.vs.get(this.sel)?.v);
   }
 
-  // Listening while the followed vessel crosses into (or out of) a channel's area: switch to it (or back), as the
-  // ship would call the traffic centre. Only on a crossing, so picking a vessel already inside changes nothing.
+  // Listening (not scanning: Scan follows the talk by itself) while the followed vessel crosses into (or out of) a
+  // channel's area: switch to it (or back), as the ship would call the traffic centre. Only on a crossing, so
+  // picking a vessel already inside changes nothing.
   _sdrArea(v) {
     const s = this.sdr;
     const inA = (a) => v.lat >= a[0] && v.lat <= a[2] && v.lon >= a[1] && v.lon <= a[3];
     const i = v && fin(v.lat) && fin(v.lon) ? s.channels.findIndex((c) => c.area && inA(c.area)) : -1;
-    if (s.on && v && this._sdrMmsi === v.mmsi && i !== this._sdrIn) {
-      if (i >= 0 && s.ch !== i) {
-        this._sdrBack = s.ch;
+    if (s.on && !s.scanning && v && this._sdrMmsi === v.mmsi && i !== this._sdrIn) {
+      if (i >= 0 && s.cur !== i) {
+        this._sdrBack = s.cur;
         s.tune(i);
-      } else if (i < 0 && this._sdrBack != null && s.ch === this._sdrIn) s.tune(this._sdrBack);
+      } else if (i < 0 && this._sdrBack != null && this._sdrBack >= 0 && s.cur === this._sdrIn) s.tune(this._sdrBack);
       if (i < 0) this._sdrBack = null;
     }
     if (this._sdrMmsi !== v?.mmsi) this._sdrBack = null;
@@ -1430,7 +1232,6 @@ export class Bridge {
 
   destroy() {
     this.destroyed = true;
-    this.sdr?.destroy();
     clearTimeout(this._tilesTimer);
     this._removePre?.();
     for (const off of this._listeners) off();

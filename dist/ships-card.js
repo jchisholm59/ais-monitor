@@ -17,7 +17,7 @@ const DEFAULTS = {
   map_height: null,
   markers: [], // your own landmarks on the map: a list of {name, lat, lon, sub, note}; false hides the shipwrecks too
   cesium_token: "", // optional: Cesium ion token for the Bridge tab (or paste it into the tab; saved to your HA profile)
-  sdr: null, // Bridge tab's Listen button: a Pi-SDR receiver, {url, channels: [{name, freq (MHz)}...]} (NFM)
+  sdr: null, // Listen panel (map + Bridge): a Pi-SDR receiver, {url, channels: [{name, freq (MHz), scan?, area?}...]} (NFM); see sdr-listen.js
   monitor_token: "", // ais-monitor with ADMIN_PASSWORD: its admin token (or sign in on the Alerts tab; saved to your HA profile)
   ship_models: true, // Bridge tab's Follow view: realistic 3D ships (ship-*.glb next to this file, CREDITS.md); false = simple built-in ones
 };
@@ -296,6 +296,7 @@ class ShipsCard extends HTMLElement {
   }
   disconnectedCallback() {
     this._closeBridge();
+    if (this._sdrP?.listener.on) this._sdrP.listener.stop(); // off the dashboard: the receiver goes back
     for (const t of this._timers || []) clearInterval(t);
     this._timers = [];
     this._ro?.disconnect();
@@ -781,6 +782,7 @@ class ShipsCard extends HTMLElement {
     });
     this._initMapInput();
     this._built = true;
+    this._sdrInit();
     if (this.isConnected && this._ro) this._ro.observe(this.$("map"));
     this._setTab(this._tab);
   }
@@ -791,6 +793,7 @@ class ShipsCard extends HTMLElement {
     if (t !== "bridge") this._save("tab", t);
     if (t === "bridge") this._openBridge();
     else this._closeBridge();
+    if (t !== "bridge") this._sdrP?.panel.mount(this.$("map"), "map"); // the Listen panel: on the map, or in the bridge
     for (const b of this.$("tabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === t);
     for (const [k] of TABS) this.$("p-" + k).classList.toggle("on", k === t);
     if (t === "alerts") this._loadAlerts();
@@ -855,7 +858,7 @@ class ShipsCard extends HTMLElement {
     this._bridgeLoading = true;
     try {
       const here = new URL(import.meta.url);
-      const [mod, token] = await Promise.all([import(new URL("./ships-bridge.js" + here.search, here).href), this._cesiumToken()]);
+      const [mod, token] = await Promise.all([import(new URL("./ships-bridge.js" + here.search, here).href), this._cesiumToken(), this._sdrInit()]);
       if (this._tab !== "bridge" || !this.isConnected) return;
       this._bridge = new mod.Bridge(this.$("bridge"), {
         token,
@@ -874,7 +877,7 @@ class ShipsCard extends HTMLElement {
         status: (v) => STATUS[v.status] || "",
         photo: (mmsi) => this.photo(mmsi),
         models: this._config.ship_models !== false,
-        sdr: this._config.sdr,
+        sdr: this._sdrP,
       });
       this._bridge.setData(this._bridgeList(), this._sel);
       this._bridge.start();
@@ -889,6 +892,20 @@ class ShipsCard extends HTMLElement {
     if (!this._bridge) return;
     this._bridge.destroy();
     this._bridge = null;
+  }
+
+  // Listen (the `sdr` option): one Pi-SDR listener and its panel per card (sdr-listen.js, loaded only when set up),
+  // shown on the map and moved into the bridge while that's open, so listening carries on across the tabs.
+  _sdrInit() {
+    if (!this._config.sdr?.url) return null;
+    return (this._sdrReady ??= (async () => {
+      const here = new URL(import.meta.url);
+      const { SdrListener, SdrPanel } = await import(new URL("./sdr-listen.js" + here.search, here).href);
+      const listener = new SdrListener(this._config.sdr, "nfm", "ships-card");
+      this._sdrP = { listener, panel: new SdrPanel(listener) };
+      if (this._tab !== "bridge") this._sdrP.panel.mount(this.$("map"), "map");
+      return this._sdrP;
+    })().catch((e) => console.warn("ships-card: Listen panel", e)));
   }
 
   // Cesium token: the card config's cesium_token, else the one pasted into the Bridge tab (or the Planes card's
