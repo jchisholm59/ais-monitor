@@ -450,10 +450,135 @@ const STYLE = `
   @container (max-width: 620px) { .br .photo { bottom: 112px; height: min(calc(50% - 150px), 90px); } .br .photo img { max-width: 36vw; } .br .photo.big { height: calc(100% - 190px); } }
 `;
 
+// Listen: marine VHF through a Pi-SDR receiver (github.com/jchisholm59/Pi-SDR), set up with the card's `sdr` option:
+//   sdr: { url: "http://192.168.1.30:8073", channels: [{ name: "Ch 16", freq: 156.8 }, { name: "Ch 12", freq: 156.6 }] }
+// (channels default to NFM). The same class as skyaware-cockpit.js's: keep the two in step.
+// Its WebSocket carries 48 kHz PCM ([2][channels][3 bytes][int16...]), played on scheduled Web Audio buffers as in
+// Pi-SDR's own page. Tuning it moves the receiver for everyone; Stop puts it back where it was if nobody moved it since.
+// A page served over https can't open the ws:// of a plain-http receiver (mixed content).
+class SdrListener {
+  constructor(cfg, onChange, defMode = "am") {
+    this.defMode = defMode;
+    this.url = String(cfg.url || "").replace(/\/+$/, "");
+    this.channels = (cfg.channels || []).map((c) => ({ name: String(c.name || c.freq), hz: Math.round(Number(c.freq) * (Number(c.freq) < 1e4 ? 1e6 : 1)), mode: c.mode || this.defMode }))
+      .filter((c) => c.hz > 0);
+    this.onChange = onChange;
+    this.on = false;
+    this.ch = 0;
+    this.err = "";
+  }
+  get channel() {
+    return this.channels[this.ch];
+  }
+  async start() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+      this.gain = this.ctx.createGain();
+      this.gain.connect(this.ctx.destination);
+    }
+    await this.ctx.resume(); // inside the click, so the browser allows sound
+    this.on = true;
+    this.err = "";
+    this.next = 0;
+    this.prev = null;
+    this._connect();
+    this.onChange();
+  }
+  _connect() {
+    let ws;
+    try {
+      ws = this.ws = new WebSocket(this.url.replace(/^http/, "ws") + "/ws");
+    } catch (e) {
+      return this._fail(location.protocol === "https:" && this.url.startsWith("http:") ? "an https page can't reach an http receiver" : e.message);
+    }
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => {
+      this._send({ cmd: "spectrum", on: false });
+      this._send({ cmd: "audio", on: true });
+    };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return void (new Uint8Array(ev.data, 0, 1)[0] === 2 && this._play(ev.data));
+      let m;
+      try {
+        m = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      if (m.type !== "state") return;
+      this.radio = m.state;
+      if (!this.prev) {
+        this.prev = { freq: m.state.freq, mode: m.state.mode, bw: m.state.bw };
+        this.tune(this.ch);
+      }
+    };
+    ws.onerror = () => this._fail("can't reach the receiver at " + this.url);
+    ws.onclose = () => {
+      if (this.on && this.ws === ws) this._fail("the receiver closed the connection");
+    };
+  }
+  _fail(msg) {
+    this.err = msg;
+    this.stop();
+  }
+  _send(o) {
+    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(o));
+  }
+  tune(i) {
+    if (!this.channels.length) return this.onChange(); // no channels: listen to whatever it's tuned to
+    this.ch = ((i % this.channels.length) + this.channels.length) % this.channels.length;
+    const c = this.channel;
+    if (c && this.prev) {
+      if (this.radio?.mode !== c.mode) this._send({ cmd: "mode", mode: c.mode });
+      this._send({ cmd: "tune", freq: c.hz });
+    }
+    this.onChange();
+  }
+  stop() {
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) {
+      // put the receiver back, unless someone else has tuned it since
+      if (this.prev && ws.readyState === 1 && this.radio?.freq === this.channel?.hz) {
+        if (this.prev.mode !== this.radio.mode) ws.send(JSON.stringify({ cmd: "mode", mode: this.prev.mode, bw: this.prev.bw }));
+        ws.send(JSON.stringify({ cmd: "tune", freq: this.prev.freq }));
+      }
+      try {
+        ws.close();
+      } catch (e) {}
+    }
+    this.on = false;
+    this.onChange();
+  }
+  _play(buf) {
+    if (!this.on || !this.ctx) return;
+    const ch = new Uint8Array(buf, 1, 1)[0];
+    const pcm = new Int16Array(buf.slice(5));
+    const n = pcm.length / ch;
+    const ab = this.ctx.createBuffer(ch, n, 48000);
+    for (let c = 0; c < ch; c++) {
+      const d = ab.getChannelData(c);
+      for (let i = 0; i < n; i++) d[i] = pcm[i * ch + c] / 32768;
+    }
+    const now = this.ctx.currentTime;
+    if (this.next < now + 0.03) this.next = now + 0.15; // underrun (or first): rebuild a small cushion
+    if (this.next > now + 0.6) return; // too far ahead (clock drift): drop this chunk to catch up
+    const src = this.ctx.createBufferSource();
+    src.buffer = ab;
+    src.connect(this.gain);
+    src.start(this.next);
+    this.next += ab.duration;
+  }
+  destroy() {
+    if (this.on) this.stop();
+    this.ctx?.close().catch(() => {});
+  }
+}
+
 export class Bridge {
   // opts: { token, saveToken(token) -> Promise, color(v) -> css colour, onPick(mmsi), onExit(),
   //         label(v) -> {nm, sub}, status(v) -> navigational status text, models (false: built-in ships only),
-  //         photo(mmsi) -> Promise<{url, file, date, credit, license, page} | null> }
+  //         photo(mmsi) -> Promise<{url, file, date, credit, license, page} | null>,
+  //         sdr {url, channels} (the Listen button; see SdrListener) }
   constructor(container, opts) {
     this.el = container;
     this.opts = opts;
@@ -476,6 +601,20 @@ export class Bridge {
     this._setSmooth(saved("smooth", "1") !== "0");
     this.photoOff = saved("photo", "1") === "0";
     this._setMode("bridge");
+    if (opts.sdr?.url) {
+      this.sdr = new SdrListener(opts.sdr, () => this._sdrButtons(), "nfm");
+      this._sdrButtons();
+    }
+  }
+
+  _sdrButtons() {
+    const s = this.sdr, c = s.channel;
+    this.$.listen.hidden = false;
+    this.$.listen.classList.toggle("on", s.on);
+    this.$.listen.textContent = s.on ? "■ Stop" : s.err ? "🎧 Listen ⚠" : "🎧 Listen";
+    this.$.listen.title = s.err ? "Listen: " + s.err : "Listen to marine VHF on the Pi-SDR receiver (" + s.url + ")";
+    this.$.chan.hidden = !s.on || s.channels.length < 2;
+    if (c) this.$.chan.textContent = c.name + " " + (c.hz / 1e6).toFixed(3);
   }
 
   _save(k, v) {
@@ -537,6 +676,8 @@ export class Bridge {
             <button data-br="smooth" title="Smooth: show the vessel ${SMOOTH_DELAY_S} s behind live, on its real path between position reports, instead of estimating ahead">Smooth</button>
             <button data-br="reset" title="Look ahead again">Look ahead</button>
             <button data-br="photo" title="Show or hide the ship's photo (Wikimedia Commons)" hidden>Photo</button>
+            <button data-br="listen" hidden></button>
+            <button data-br="chan" hidden title="Next channel"></button>
             <button data-br="exit">Map</button>
           </div>
         </div>
@@ -548,7 +689,8 @@ export class Bridge {
     const q = (s) => this.el.querySelector(s);
     this.$ = { scene: q(".scene"), nm: q(".ident .nm"), sub: q(".ident .sub"), tape: q(".tape"), nav: q(".nav"), sog: q(".sog b"),
       cog: q(".cog b"), hdgv: q(".cog .hdgv"), status: q(".status"), msg: q(".msg"), credits: q(".credits"), mode: q('[data-br="mode"]'),
-      mcredit: q(".mcredit"), photo: q(".photo"), photoImg: q(".photo img"), photoCap: q(".photo figcaption"), photoBtn: q('[data-br="photo"]'), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]') };
+      mcredit: q(".mcredit"), photo: q(".photo"), photoImg: q(".photo img"), photoCap: q(".photo figcaption"), photoBtn: q('[data-br="photo"]'), viewBtn: q('[data-br="view"]'), smoothBtn: q('[data-br="smooth"]'), reset: q('[data-br="reset"]'),
+      listen: q('[data-br="listen"]'), chan: q('[data-br="chan"]') };
     this._on(this.el, "click", (e) => {
       if (e.target.closest(".photo") && !e.target.closest("a")) return void this.$.photo.classList.toggle("big");
       const b = e.target.closest("[data-br]");
@@ -560,6 +702,8 @@ export class Bridge {
       else if (act === "view") this._setView(VIEW_ORDER[(VIEW_ORDER.indexOf(this.view) + 1) % VIEW_ORDER.length]);
       else if (act === "smooth") this._setSmooth(!this.smooth);
       else if (act === "reset") this._resetView();
+      else if (act === "listen") this.sdr.on ? this.sdr.stop() : this.sdr.start().catch((e) => this.sdr._fail(e.message));
+      else if (act === "chan") this.sdr.tune(this.sdr.ch + 1);
       else if (act === "photo") {
         this.photoOff = !this.photoOff;
         this._save("photo", this.photoOff ? "0" : "1");
@@ -1209,6 +1353,7 @@ export class Bridge {
 
   destroy() {
     this.destroyed = true;
+    this.sdr?.destroy();
     clearTimeout(this._tilesTimer);
     this._removePre?.();
     for (const off of this._listeners) off();

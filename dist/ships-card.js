@@ -17,6 +17,7 @@ const DEFAULTS = {
   map_height: null,
   markers: [], // your own landmarks on the map: a list of {name, lat, lon, sub, note}; false hides the shipwrecks too
   cesium_token: "", // optional: Cesium ion token for the Bridge tab (or paste it into the tab; saved to your HA profile)
+  sdr: null, // Bridge tab's Listen button: a Pi-SDR receiver, {url, channels: [{name, freq (MHz)}...]} (NFM)
   monitor_token: "", // ais-monitor with ADMIN_PASSWORD: its admin token (or sign in on the Alerts tab; saved to your HA profile)
   ship_models: true, // Bridge tab's Follow view: realistic 3D ships (ship-*.glb next to this file, CREDITS.md); false = simple built-in ones
 };
@@ -873,6 +874,7 @@ class ShipsCard extends HTMLElement {
         status: (v) => STATUS[v.status] || "",
         photo: (mmsi) => this.photo(mmsi),
         models: this._config.ship_models !== false,
+        sdr: this._config.sdr,
       });
       this._bridge.setData(this._bridgeList(), this._sel);
       this._bridge.start();
