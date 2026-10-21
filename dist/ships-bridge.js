@@ -458,7 +458,9 @@ const STYLE = `
 
 // Listen: marine VHF through a Pi-SDR receiver (github.com/jchisholm59/Pi-SDR), set up with the card's `sdr` option:
 //   sdr: { url: "http://192.168.1.30:8073", channels: [{ name: "Ch 16", freq: 156.8 }, { name: "Ch 12", freq: 156.6 }] }
-// (channels default to NFM). The same class as skyaware-cockpit.js's: keep the two in step.
+// (channels default to NFM). A channel with `area: [south, west, north, east]` (degrees) is switched to when the
+// followed vessel sails into that box, and left (back to the channel before) when it sails out: e.g. the harbour's
+// Vessel Traffic Services channel. The same class as skyaware-cockpit.js's: keep the two in step.
 // Its WebSocket carries 48 kHz PCM ([2][channels][3 bytes][int16...]), played on scheduled Web Audio buffers as in
 // Pi-SDR's own page. Tuning it moves the receiver for everyone; Stop puts it back where it was if nobody moved it since.
 // A page served over https can't open the ws:// of a plain-http receiver (mixed content).
@@ -467,7 +469,7 @@ class SdrListener {
   constructor(cfg, onChange, defMode = "am") {
     this.defMode = defMode;
     this.url = String(cfg.url || "").replace(/\/+$/, "");
-    this.channels = (cfg.channels || []).map((c) => ({ name: String(c.name || c.freq), hz: Math.round(Number(c.freq) * (Number(c.freq) < 1e4 ? 1e6 : 1)), mode: c.mode || this.defMode }))
+    this.channels = (cfg.channels || []).map((c) => ({ name: String(c.name || c.freq), hz: Math.round(Number(c.freq) * (Number(c.freq) < 1e4 ? 1e6 : 1)), mode: c.mode || this.defMode, area: Array.isArray(c.area) && c.area.length === 4 ? c.area.map(Number) : null }))
       .filter((c) => c.hz > 0);
     this.onChange = onChange;
     this.on = false;
@@ -998,6 +1000,25 @@ export class Bridge {
       this.look = { yaw: 0, pitch: 0 };
       this._showPhoto();
     }
+    if (this.sdr) this._sdrArea(this.vs.get(this.sel)?.v);
+  }
+
+  // Listening while the followed vessel crosses into (or out of) a channel's area: switch to it (or back), as the
+  // ship would call the traffic centre. Only on a crossing, so picking a vessel already inside changes nothing.
+  _sdrArea(v) {
+    const s = this.sdr;
+    const inA = (a) => v.lat >= a[0] && v.lat <= a[2] && v.lon >= a[1] && v.lon <= a[3];
+    const i = v && fin(v.lat) && fin(v.lon) ? s.channels.findIndex((c) => c.area && inA(c.area)) : -1;
+    if (s.on && v && this._sdrMmsi === v.mmsi && i !== this._sdrIn) {
+      if (i >= 0 && s.ch !== i) {
+        this._sdrBack = s.ch;
+        s.tune(i);
+      } else if (i < 0 && this._sdrBack != null && s.ch === this._sdrIn) s.tune(this._sdrBack);
+      if (i < 0) this._sdrBack = null;
+    }
+    if (this._sdrMmsi !== v?.mmsi) this._sdrBack = null;
+    this._sdrMmsi = v?.mmsi;
+    this._sdrIn = i;
   }
 
   // The selected vessel's photo, framed bottom left in both views (opts.photo(mmsi) -> {url, file, date, credit,
