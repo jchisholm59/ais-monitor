@@ -483,6 +483,9 @@ class SdrListener {
     this.next = 0;
     this.prev = null;
     this.sqSet = null;
+    // Closing the tab (or leaving the page) acts like Stop: the receiver goes back where it was.
+    this._onHide = () => this.on && this.stop();
+    window.addEventListener("pagehide", this._onHide);
     this._connect();
     this.onChange();
   }
@@ -557,6 +560,8 @@ class SdrListener {
         ws.close();
       } catch (e) {}
     }
+    if (this._onHide) window.removeEventListener("pagehide", this._onHide);
+    this._onHide = null;
     this.on = false;
     this.onChange();
   }
