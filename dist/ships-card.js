@@ -256,7 +256,7 @@ class ShipsCard extends HTMLElement {
     if (this._tab === "bridge") this._tab = "map"; // Cesium only loads when asked for
     this._loc = get("loc", "");
     this._labels = get("labels", "1") === "1";
-    this._sat = get("sat", "0") === "1"; // satellite basemap
+    this._sat = get("sat", "1") === "1"; // satellite basemap (the default; the button switches to the gray map, remembered)
     this._sort = get("sort", "dist");
     this._sortDir = Number(get("sortdir", "1"));
     this._listCls = get("listcls", "all");
