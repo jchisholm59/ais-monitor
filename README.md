@@ -101,6 +101,10 @@ Same card, same features every way: the monitor serves it with a small stand-in 
 Home Assistant. Details in [Without Home Assistant](#without-home-assistant) and the
 [add-on's documentation](https://github.com/jchisholm59/ha-addons/blob/main/ais-monitor/DOCS.md).
 
+**The add-on in one click:** [![Add the repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjchisholm59%2Fha-addons)
+This adds the add-on repository to your Home Assistant (the first time, it asks for your Home Assistant's address);
+then find **AIS Monitor** in the Add-on Store and **Install**.
+
 ## Classes
 From the AIS ship type each vessel broadcasts, plus its name:
 
