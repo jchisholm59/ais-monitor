@@ -80,7 +80,8 @@ Two pieces:
     stays on one, **SQL** is the squelch, and **⊘** keeps a channel out of the scan (the weather broadcast never stops).
     See `sdr` in [Configuration](#configuration).
   - **Alerts**: phone alerts for **warships** and **cruise ships** (optionally Coast Guard ships) **entering a
-    harbour**, and which harbours to watch.
+    harbour**, and which harbours to watch; **tide alerts** before high and/or low tide at the Tides tab's stations.
+    By Home Assistant, ntfy and/or email (Gmail).
 - **`ais-monitor`**: a small always-on Node service (no dependencies) that holds one connection to
   [aisstream.io](https://aisstream.io), a free AIS feed that needs a key. It keeps a table of every vessel heard in
   the areas you choose, and serves the closest ones to the card. Your key stays on your server; aisstream doesn't
@@ -192,6 +193,23 @@ Alerts go to a Home Assistant webhook automation ([`ha-automation.yaml`](ha-auto
 **Open** goes to the Ships view. A plain copy goes to a Wear OS watch, since Android doesn't pass persistent
 notifications on to the watch. Turn types on or off, set the circle and pick harbours in the
 card's Alerts tab; there's a test button and the recent alerts.
+
+**Email**: with `GMAIL_USER` and `GMAIL_PASSWORD` (a Gmail [app password](https://myaccount.google.com/apppasswords),
+not your account password) in `.env`, alerts can also be emailed, to `GMAIL_RECIPIENT` (default: yourself). It's
+off until you tap **Email** under *Send by* on the Alerts tab, separately for ship and tide alerts; the test button
+uses every route that's set up. Any other mail server with TLS on connect works too (`SMTP_HOST`, `SMTP_PORT`).
+
+## Tide alerts
+Like the ship alerts, set on the Alerts tab: a notification a set time (5–360 minutes, 60 by default) before each
+predicted **high** and/or **low** tide at the stations you pick from the Tides tab's list, sent by the routes you
+choose. Each tide alerts once (remembered in the alert history, so a restart doesn't repeat it), and each station's
+alert replaces its last one on the phone. Example:
+
+> 🌊 High tide at Halifax Harbour in 48 min
+> High tide 1.61 m (5.3 ft) at 18:48
+> CHS, above chart datum (about the lowest tides)
+
+Times are the station's local time. The monitor checks once a minute, from the same cached predictions as the Tides tab.
 
 ## Requirements
 - A free **aisstream.io** API key: sign in at aisstream.io, then *API Keys*. A key allows only a limited number of
@@ -307,7 +325,11 @@ address out for 15 minutes. With no `ADMIN_PASSWORD`, nothing changes: no sign-i
 | `HA_WEBHOOK` | none | HA webhook URL for phone alerts |
 | `NTFY_URL` | none | ntfy topic URL for phone alerts without HA, e.g. `https://ntfy.sh/<long-random-topic>`. With neither this nor `HA_WEBHOOK`, alerts are only logged |
 | `NTFY_TOKEN` | none | Only for a protected ntfy server or topic |
-| `DASHBOARD_URL` | none | Opened when you tap an ntfy alert, e.g. `http://192.168.1.20:7110/` |
+| `DASHBOARD_URL` | none | Opened when you tap an ntfy alert, e.g. `http://192.168.1.20:7110/` (and linked in emails) |
+| `GMAIL_USER`, `GMAIL_PASSWORD` | none | Email alerts through Gmail: your address and an app password. Chosen per alert type on the Alerts tab |
+| `GMAIL_RECIPIENT` | `GMAIL_USER` | Who gets the emails (comma-separated) |
+| `GMAIL_SENDER_NAME` | `ais-monitor` | The From name |
+| `SMTP_HOST`, `SMTP_PORT` | `smtp.gmail.com`, `465` | Another mail server (TLS on connect) |
 | `ALERT_RADIUS_NM` | `6` | Starting harbour circle for alerts; then set in the card |
 | `ADMIN_PASSWORD` | none | Guests can look but not change anything; sign in on the Alerts tab (see [Sharing it with guests](#sharing-it-with-guests)) |
 | `CESIUM_TOKEN` | none | Cesium ion token for the Bridge tab, for everyone using the dashboard (and guests) |

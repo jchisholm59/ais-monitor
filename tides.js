@@ -232,8 +232,15 @@ module.exports = function createTides({ dataDir, isAdmin, locations, worldtidesK
     }
   };
 
-  // Handles /api/tides*: returns true if it answered.
-  return async function handle(req, res, url, sendJson, body) {
+  // Handles /api/tides*: returns true if it answered. The server's tide alerts also use a station's tides and the Tides
+  // tab's station list (the saved one, else the defaults).
+  handle.station = station;
+  handle.list = async () => {
+    const s = readSaved();
+    return Array.isArray(s) && s.length ? s : defaults();
+  };
+  return handle;
+  async function handle(req, res, url, sendJson, body) {
     const p = url.pathname;
     if (!p.startsWith('/api/tides')) return false;
     if (p === '/api/tides') return sendJson(res, await station(url.searchParams.get('station'))), true;
@@ -248,5 +255,5 @@ module.exports = function createTides({ dataDir, isAdmin, locations, worldtidesK
       return sendJson(res, list), true;
     }
     return false;
-  };
+  }
 };
