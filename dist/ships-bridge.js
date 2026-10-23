@@ -107,7 +107,10 @@ function shipKind(v) {
   if (t === 37) return "yacht";
   if (t === 50 || /\bPILOT\b/.test(name)) return "pilot";
   if ([31, 32, 33, 34, 51, 52, 53, 54, 55, 56, 57, 58, 59].includes(t) || v.cls === "gov") return "tug";
+  // No type: by length, else by transponder. Class A is carried by every sizeable ship, so one whose details haven't
+  // arrived yet (they come every 6 minutes) is shown as a mid-size cargo ship rather than a tug.
   const L = v.length || 0;
+  if (!L) return v.classB ? "yacht" : "container";
   return L >= 120 ? "container" : L >= 40 ? "ferry" : v.classB ? "yacht" : "tug";
 }
 const KIND_LENGTH = { container: 180, bulk: 180, tanker: 180, cruise: 290, ferry: 110, navy: 130, fishing: 25, sail: 12, yacht: 14, pilot: 18, tug: 30 };

@@ -233,7 +233,10 @@ function onMessage(m) {
   if (!body || !isShip(mmsi)) return;
   const v = vessel(mmsi);
   switch (type) {
+    // Class A or B from the latest position report: some class A transponders also send class B static data (type
+    // 24), which used to mark big ships like ZUIDERDAM as class B for good.
     case 'PositionReport':
+      v.classB = false;
       return onPosition(v, body, meta);
     case 'StandardClassBPositionReport':
       v.classB = true;
@@ -260,7 +263,6 @@ function onMessage(m) {
       return;
     }
     case 'StaticDataReport': {
-      v.classB = true;
       if (body.ReportA?.Valid) setName(v, body.ReportA.Name);
       if (body.ReportB?.Valid) {
         if (body.ReportB.ShipType) v.type = body.ReportB.ShipType;
