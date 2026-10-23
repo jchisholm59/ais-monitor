@@ -63,6 +63,10 @@ const HA_WEBHOOK = envUrl('HA_WEBHOOK');
 const NTFY_URL = envUrl('NTFY_URL', '', 'https');
 const NTFY_TOKEN = env('NTFY_TOKEN');
 const DASHBOARD_URL = envUrl('DASHBOARD_URL'); // where tapping an ntfy alert goes, e.g. http://granite:7110/
+// Email (Gmail with an app password, or another SMTP server on port 465): see mail.js.
+const MAIL = require('./mail')({ user: env('GMAIL_USER'), pass: env('GMAIL_PASSWORD'), to: env('GMAIL_RECIPIENT'), senderName: env('GMAIL_SENDER_NAME', 'ais-monitor'), host: env('SMTP_HOST', 'smtp.gmail.com'), port: num('SMTP_PORT', 465) });
+// The routes an alert can go out by, and which of them are set up.
+const ROUTES = { webhook: !!HA_WEBHOOK, ntfy: !!NTFY_URL, gmail: MAIL.ready };
 const AUTH = require('./auth')(env('ADMIN_PASSWORD'), 'ais-monitor', env('ADMIN_TRUSTED_IPS')); // guests can look, only the owner can change
 const CESIUM_TOKEN = env('CESIUM_TOKEN'); // the Bridge tab's token for everyone using the dashboard (and guests)
 
@@ -380,7 +384,7 @@ function save() {
 // ships already in port when the monitor starts count. Watched ships (starred on the card's Vessel tab) alert both ways
 // whatever their type and whether or not departures are on. A departure circle smaller than the harbour circle alerts as
 // the ship pulls away from its berth instead of once it's out of the harbour. Both carry a photo of the ship.
-// Sent to Home Assistant's webhook.
+// Sent by the routes chosen on the card's Alerts tab: Home Assistant's webhook, ntfy and/or email.
 
 const DEFAULT_SETTINGS = {
   warships: true,
@@ -392,8 +396,12 @@ const DEFAULT_SETTINGS = {
   harbours: LOCATIONS.length ? [LOCATIONS[0].name] : [],
   cooldownHours: 12,
   watch: [], // [{ mmsi, name }]: these ships alert arriving and leaving, whatever their type
+  channels: ['webhook', 'ntfy'], // how ship alerts go out (of the routes set up in .env); email is opt-in
+  // High / low tide alerts (see checkTides): minutesBefore each chosen event at the chosen Tides tab stations.
+  tides: { enabled: false, minutesBefore: 60, events: ['high', 'low'], stations: [], channels: ['webhook', 'ntfy'] }, // stations: [{ id, name }]
 };
 let settings = { ...DEFAULT_SETTINGS, ...readJson(SETTINGS_FILE, {}) };
+settings.tides = { ...DEFAULT_SETTINGS.tides, ...settings.tides };
 let alerts = readJson(ALERTS_FILE, []);
 
 function alertKind(v) {
@@ -646,20 +654,43 @@ async function sendAlert(v, a, h, d, leaving = false) {
     kind: a.kind, mmsi: v.mmsi, harbour: h.name, priority: 'high', tag: `ais-${a.kind}-${v.mmsi}`, leaving, image,
     title: `${icon} ${what} ${leaving ? 'leaving' : 'entering'} ${h.name}`,
     message: `${a.kind === 'watched' ? [a.k.sub || typeLabel(v.type) || 'Ship', bits].filter(Boolean).join(' · ') : `${name}${bits ? ` · ${bits}` : ''}`}\n${move}`,
-  });
+  }, settings.channels);
 }
 
-async function send(alert) {
-  const rec = { t: Date.now(), ...alert };
+// Sends by the chosen routes that are set up (all of them when none are given, as for the test alert).
+async function send(alert, channels = Object.keys(ROUTES)) {
+  const via = channels.filter((c) => ROUTES[c]);
+  const rec = { t: Date.now(), ...alert, via };
   alerts.push(rec);
   alerts = alerts.slice(-200);
   writeJson(ALERTS_FILE, alerts);
-  log('alert', alert.kind, alert.title, '|', alert.message.replace(/\n/g, ' | '));
-  if (!HA_WEBHOOK && !NTFY_URL) return rec;
-  const results = await Promise.all([HA_WEBHOOK && sendWebhook(alert), NTFY_URL && sendNtfy(alert)].filter(Boolean));
+  log('alert', alert.kind, alert.title, '|', alert.message.replace(/\n/g, ' | '), via.length ? `(${via.join(' + ')})` : '(not sent)');
+  if (!via.length) return rec;
+  const by = { webhook: sendWebhook, ntfy: sendNtfy, gmail: sendMail };
+  const results = await Promise.all(via.map((c) => by[c](alert)));
   rec.sent = results.some(Boolean);
   writeJson(ALERTS_FILE, alerts);
   return rec;
+}
+
+const escHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// The email: the alert as a small dark card (like WatchTower's), with the ship's photo and a link to the dashboard.
+async function sendMail(alert) {
+  const head = alert.kind === 'tide' ? ['#0e7490', '🌊 TIDE ALERT'] : alert.kind === 'test' ? ['#15803d', '✅ TEST'] : ['#1d4ed8', '🚢 SHIP ALERT'];
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d0e10;color:#e5e7eb;padding:24px">
+    <div style="max-width:520px;margin:0 auto;background:#1a1c1e;border:1px solid #333;border-radius:8px;overflow:hidden">
+      <div style="background:${head[0]};padding:16px 22px"><h1 style="margin:0;font-size:16px;color:#fff;letter-spacing:1px">${head[1]}</h1></div>
+      ${alert.image ? `<img src="${escHtml(alert.image)}" alt="" style="display:block;width:100%;max-height:300px;object-fit:cover">` : ''}
+      <div style="padding:22px;font-size:14px;line-height:1.6"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${escHtml(alert.title)}</div><div style="white-space:pre-line">${escHtml(alert.message || '')}</div>
+      ${DASHBOARD_URL ? `<p style="margin:16px 0 0"><a href="${escHtml(DASHBOARD_URL)}" style="color:#38bdf8">Open the dashboard</a></p>` : ''}</div>
+      <div style="font-size:11px;color:#71717a;text-align:center;padding:14px;border-top:1px solid #27272a">ais-monitor${alert.kind === 'tide' ? ' • tide predictions' : ''}</div>
+    </div></div>`;
+  try {
+    return await MAIL.send({ subject: alert.title, text: `${alert.message || ''}${DASHBOARD_URL ? `\n\n${DASHBOARD_URL}` : ''}`, html });
+  } catch (e) {
+    log('email failed:', e.message);
+    return false;
+  }
 }
 
 async function postJson(url, obj, headers = {}) {
@@ -684,7 +715,7 @@ async function sendWebhook(alert) {
 }
 
 // ntfy's JSON publishing: POST {topic, title, message, ...} to the server's root.
-const NTFY_TAGS = { warship: 'anchor', cruise: 'passenger_ship', coastguard: 'sos', test: 'white_check_mark' };
+const NTFY_TAGS = { warship: 'anchor', cruise: 'passenger_ship', coastguard: 'sos', tide: 'ocean', test: 'white_check_mark' };
 async function sendNtfy(alert) {
   try {
     const u = new URL(NTFY_URL);
@@ -717,8 +748,90 @@ function updateSettings(p) {
     settings.watch = p.watch.map((w) => ({ mmsi: Number(w?.mmsi), name: String(w?.name || '').slice(0, 40) }))
       .filter((w, i, all) => Number.isInteger(w.mmsi) && w.mmsi > 0 && w.mmsi < 1e9 && all.findIndex((x) => x.mmsi === w.mmsi) === i).slice(0, 100);
   if (Array.isArray(p.harbours)) settings.harbours = p.harbours.filter((n) => LOCATIONS.some((l) => l.name === n));
+  const routes = (c) => Object.keys(ROUTES).filter((r) => c.includes(r));
+  if (Array.isArray(p.channels)) settings.channels = routes(p.channels);
+  const t = p.tides && typeof p.tides === 'object' ? p.tides : null, st = settings.tides;
+  if (t) {
+    if (Array.isArray(t.channels)) st.channels = routes(t.channels);
+    if (typeof t.enabled === 'boolean') st.enabled = t.enabled;
+    const n = Number(t.minutesBefore);
+    if (t.minutesBefore !== undefined && Number.isFinite(n) && n >= 5 && n <= 360) st.minutesBefore = Math.round(n);
+    if (Array.isArray(t.events)) st.events = ['high', 'low'].filter((e) => t.events.includes(e));
+    if (Array.isArray(t.stations))
+      st.stations = t.stations.filter((x, i, all) => x && TIDE_ID.test(x.id) && all.findIndex((y) => y.id === x.id) === i).slice(0, 20)
+        .map((x) => ({ id: x.id, name: String(x.name || '').slice(0, 40) || 'Station' }));
+  }
   writeJson(SETTINGS_FILE, settings);
   return settings;
+}
+
+// ---- tide alerts -------------------------------------------------------------
+// Like WatchTower's: a notification minutesBefore each predicted high and/or low tide at the chosen stations (from the
+// Tides tab's list), checked every minute (the tides are cached: CHS 30 min, NOAA 3 h, models 6 h). Each event alerts
+// once: the alert history remembers it, so a restart doesn't repeat it. One tag per station, so a station's next alert
+// replaces the last on the phone.
+const TIDE_ID = /^([0-9a-f]{24}|noaa:\w{5,10}|geo:-?\d+(\.\d+)?,-?\d+(\.\d+)?)$/;
+let tideBusy = false;
+
+async function checkTides() {
+  const st = settings.tides;
+  if (!st.enabled || !st.stations.length || !st.events.length || tideBusy) return;
+  tideBusy = true;
+  try {
+    const now = Date.now();
+    for (const s of st.stations) {
+      let d;
+      try {
+        d = await tidesApi.station(s.id);
+      } catch (e) {
+        log('tide alerts:', s.name, e.message);
+        continue;
+      }
+      for (const ev of tideEvents(d.events)) {
+        const mins = (ev.t - now) / 60_000;
+        if (mins <= 0 || mins > st.minutesBefore || !st.events.includes(ev.type)) continue;
+        // The same event, give or take: model extremes move a minute or two when re-fetched.
+        if (alerts.some((x) => x.kind === 'tide' && x.station === s.id && x.tide === ev.type && Math.abs(x.at - ev.t) < 2 * 3600_000)) continue;
+        await sendTideAlert(s, d.meta || {}, ev, Math.round(mins));
+      }
+    }
+  } finally {
+    tideBusy = false;
+  }
+}
+
+// Highs and lows aren't labelled (CHS wlp-hilo, model extremes): a high is above its neighbours.
+function tideEvents(events) {
+  const ev = [...(events || [])].sort((a, b) => a[0] - b[0]);
+  return ev.map(([t, v], i) => {
+    const a = ev[i - 1], b = ev[i + 1];
+    const high = a && b ? v >= a[1] && v >= b[1] : v >= (a || b || [0, -Infinity])[1];
+    return { t, v, type: high ? 'high' : 'low' };
+  });
+}
+
+function sendTideAlert(s, meta, ev, mins) {
+  let time;
+  try {
+    time = new Date(ev.t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', ...(meta.tz ? { timeZone: meta.tz } : {}) });
+  } catch (e) {
+    time = new Date(ev.t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+  const High = ev.type === 'high' ? 'High' : 'Low', inMin = mins >= 90 ? `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')} min` : `${mins} min`;
+  return send({
+    kind: 'tide', station: s.id, tide: ev.type, at: ev.t, priority: 'normal', tag: `ais-tide-${s.id.replace(/\W/g, '-')}`,
+    title: `🌊 ${High} tide at ${s.name} in ${inMin}`,
+    message: `${High} tide ${ev.v.toFixed(2)} m (${(ev.v * 3.28084).toFixed(1)} ft) at ${time}${meta.source ? `\n${meta.source}${meta.datum ? `, above ${meta.datum}` : ''}` : ''}`,
+  }, settings.tides.channels);
+}
+
+// The settings as the card gets them: plus which alert routes are set up, and the Tides tab's stations to pick from.
+async function settingsOut() {
+  let tideChoices = [];
+  try {
+    tideChoices = await tidesApi.list();
+  } catch (e) {}
+  return { ...settings, webhook: ROUTES.webhook, ntfy: ROUTES.ntfy, gmail: ROUTES.gmail, tideChoices };
 }
 
 // ---- HTTP ------------------------------------------------------------------
@@ -931,13 +1044,15 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { error: e.message }, 400);
     }
   }
-  if (p === '/api/settings' && req.method === 'GET') return sendJson(res, { ...settings, webhook: !!HA_WEBHOOK, ntfy: !!NTFY_URL });
+  if (p === '/api/settings' && req.method === 'GET') return sendJson(res, await settingsOut());
   if (p === '/api/settings' && (req.method === 'PUT' || req.method === 'POST')) {
     try {
-      return sendJson(res, { ...updateSettings(await body(req)), webhook: !!HA_WEBHOOK, ntfy: !!NTFY_URL });
+      updateSettings(await body(req));
     } catch (e) {
       return sendJson(res, { error: e.message }, 400);
     }
+    checkTides().catch((e) => log('tide alerts:', e.message));
+    return sendJson(res, await settingsOut());
   }
   if (p === '/api/alerts') return sendJson(res, alerts.slice(-100).reverse());
   if (p === '/api/test-alert' && req.method === 'POST') {
@@ -953,9 +1068,10 @@ const server = http.createServer(async (req, res) => {
   sendJson(res, { error: 'not found' }, 404);
 });
 
-server.listen(PORT, () => log(`ais-monitor on :${PORT} (dashboard at /, alerts: ${[HA_WEBHOOK && 'HA webhook', NTFY_URL && 'ntfy'].filter(Boolean).join(' + ') || 'none set'}, ${AUTH.required ? 'guests read-only' : 'no sign-in'}), ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
+server.listen(PORT, () => log(`ais-monitor on :${PORT} (dashboard at /, alerts: ${[HA_WEBHOOK && 'HA webhook', NTFY_URL && 'ntfy', MAIL.ready && `email to ${MAIL.to.join(', ')}`].filter(Boolean).join(' + ') || 'none set'}, ${AUTH.required ? 'guests read-only' : 'no sign-in'}), ${AREAS.length} areas, ${LOCATIONS.length} locations, ${vessels.size} vessels remembered`));
 connect();
 setInterval(save, WORLDWIDE ? 300_000 : 120_000);
+setInterval(() => checkTides().catch((e) => log('tide alerts:', e.message)), 60_000);
 // Message rate over the last minute, for the status.
 let lastCount = 0;
 setInterval(() => {

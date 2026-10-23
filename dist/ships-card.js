@@ -532,6 +532,7 @@ class ShipsCard extends HTMLElement {
         .chips button ha-icon { --mdc-icon-size: 15px; color: var(--c); }
         .chips button.on { border-color: var(--c, var(--primary-color)); background: color-mix(in srgb, var(--c, var(--primary-color)) 18%, transparent); }
         .chips .n { color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+        .chips button:disabled { opacity: .45; cursor: default; }
         .fpanel h5 { margin: 4px 0 8px; font-size: .72em; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); display: flex; }
         .fpanel h5 a { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; cursor: pointer; }
         .fnote { font-size: .75em; color: var(--secondary-text-color); margin-top: 8px; }
@@ -770,6 +771,17 @@ class ShipsCard extends HTMLElement {
       } else if (act === "harbour" && this._settings) {
         const h = a.dataset.h, cur = this._settings.harbours || [];
         this._saveSettings({ harbours: cur.includes(h) ? cur.filter((x) => x !== h) : [...cur, h] });
+      } else if (act === "route" && this._settings) {
+        // How ship or tide alerts go out: Home Assistant, ntfy, email.
+        const tides = a.dataset.g === "tides", r = a.dataset.r, cur = (tides ? this._settings.tides.channels : this._settings.channels) || [];
+        const next = cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r];
+        this._saveSettings(tides ? { tides: { channels: next } } : { channels: next });
+      } else if (act === "tideev" && this._settings) {
+        const e = a.dataset.e, cur = this._settings.tides.events || [];
+        this._saveSettings({ tides: { events: cur.includes(e) ? cur.filter((x) => x !== e) : [...cur, e] } });
+      } else if (act === "tidest" && this._settings) {
+        const id = a.dataset.id, cur = this._settings.tides.stations || [];
+        this._saveSettings({ tides: { stations: cur.some((x) => x.id === id) ? cur.filter((x) => x.id !== id) : [...cur, { id, name: a.dataset.n }] } });
       }
     });
     this.$("alerts").addEventListener("keydown", (e) => {
@@ -778,7 +790,8 @@ class ShipsCard extends HTMLElement {
     this.$("alerts").addEventListener("change", (e) => {
       const el = e.target.closest("[data-set]");
       if (!el) return;
-      this._saveSettings({ [el.dataset.set]: el.type === "checkbox" ? el.checked : Number(el.value) });
+      const v = el.type === "checkbox" ? el.checked : Number(el.value), [k, sub] = el.dataset.set.split(".");
+      this._saveSettings(sub ? { [k]: { [sub]: v } } : { [k]: v }); // "tides.enabled" -> { tides: { enabled } }
     });
     this._initMapInput();
     this._built = true;
@@ -1122,12 +1135,18 @@ class ShipsCard extends HTMLElement {
     }
     const locs = this._status?.locations || [];
     const sw = (k, on, l, sub) => `<label class="arow"><input type="checkbox" class="tg" data-set="${k}" ${on ? "checked" : ""}><div class="grow">${l}<div class="sub">${sub}</div></div></label>`;
-    const icon = { warship: "mdi:shield-star", cruise: "mdi:ferry", coastguard: "mdi:lifebuoy", watched: "mdi:star", test: "mdi:bell-check" };
+    const icon = { warship: "mdi:shield-star", cruise: "mdi:ferry", coastguard: "mdi:lifebuoy", watched: "mdi:star", tide: "mdi:waves", test: "mdi:bell-check" };
+    // Delivery chips for one kind of alert; routes not set up in the monitor's .env are greyed out.
+    const routes = (g, cur = []) => `<div class="arow"><div class="grow">Send by<div class="sub">greyed out: not set up in ais-monitor's .env</div></div>
+      <div class="chips">${[["webhook", "Home Assistant", "mdi:home-assistant"], ["ntfy", "ntfy", "mdi:bell-ring-outline"], ["gmail", "Email", "mdi:email-outline"]].map(([r, l, i]) =>
+        `<button data-act="route" data-g="${g}" data-r="${r}" class="${s[r] && cur.includes(r) ? "on" : ""}"${s[r] ? "" : " disabled"}><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}</div></div>`;
+    const t = s.tides || { stations: [], events: [], channels: [] };
+    const tideSt = [...(s.tideChoices || []), ...t.stations.filter((x) => !(s.tideChoices || []).some((c) => c.id === x.id))];
     box.innerHTML = `
       <div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:0">
         <ha-icon icon="mdi:cellphone-message" style="color:var(--primary-color)"></ha-icon>
-        <div style="flex:1;min-width:220px;font-size:.88em">Sticky phone notifications when a ship <b>enters a harbour</b>: it crosses into the circle around the harbour location after being seen outside it, so ships already in port never alert. Sent by ais-monitor through Home Assistant; tap one to open this card.
-          <div class="muted">${s.webhook || s.ntfy ? `<span class="good">${[s.webhook && "HA webhook set", s.ntfy && "ntfy set"].filter(Boolean).join(" · ")}</span>` : `<span class="bad">No HA_WEBHOOK or NTFY_URL in ais-monitor's .env: alerts are only logged</span>`}${this._aErr ? ` · <span class="bad">${esc(this._aErr)}</span>` : ""}</div></div>
+        <div style="flex:1;min-width:220px;font-size:.88em">Sticky phone notifications when a ship <b>enters a harbour</b>: it crosses into the circle around the harbour location after being seen outside it, so ships already in port never alert. Optional <b>tide alerts</b> before high and low tide. Sent by ais-monitor through Home Assistant, ntfy and/or email; tap one to open this card.
+          <div class="muted">${s.webhook || s.ntfy || s.gmail ? `<span class="good">${[s.webhook && "HA webhook set", s.ntfy && "ntfy set", s.gmail && "email set"].filter(Boolean).join(" · ")}</span>` : `<span class="bad">No HA_WEBHOOK, NTFY_URL or GMAIL_USER in ais-monitor's .env: alerts are only logged</span>`}${this._aErr ? ` · <span class="bad">${esc(this._aErr)}</span>` : ""}</div></div>
         <button class="btn" data-act="test"><ha-icon icon="mdi:send"></ha-icon>Send a test</button>
         ${this._auth?.required ? `<button class="btn" data-act="logout" title="Signed in as the owner"><ha-icon icon="mdi:logout"></ha-icon>Sign out</button>` : ""}
       </div>
@@ -1140,6 +1159,7 @@ class ShipsCard extends HTMLElement {
           <div class="arow"><div class="grow">Harbour circle<div class="sub">radius around each harbour location below: arrivals alert on the way in</div></div><input type="number" data-set="radius" value="${esc(s.radius)}" min="0.5" max="50" step="0.5"> nm</div>
           ${s.departures ? `<div class="arow"><div class="grow">Departure circle<div class="sub">leaving alerts when a ship goes out of this one; smaller than the harbour circle = earlier, as it pulls away (a bit more than the distance to the berth). Blank or 0: the harbour circle</div></div><input type="number" data-set="departRadius" value="${s.departRadius ? esc(s.departRadius) : ""}" placeholder="${esc(s.radius)}" min="0" max="50" step="0.25"> nm</div>` : ""}
           <div class="arow"><div class="grow">Same ship again after<div class="sub">it left and came back</div></div><input type="number" data-set="cooldownHours" value="${esc(s.cooldownHours)}" min="1" max="168"> h</div>
+          ${routes("ships", s.channels)}
         </div>
         <div class="panel"><h4>Harbours to watch</h4>
           <div class="chips">${locs.map((l) => `<button data-act="harbour" data-h="${esc(l.name)}" class="${s.harbours.includes(l.name) ? "on" : ""}">${esc(l.name)}</button>`).join("")}</div>
@@ -1149,6 +1169,15 @@ class ShipsCard extends HTMLElement {
       <div class="panel"><h4>Watched ships</h4>
         ${(s.watch || []).length ? `<div class="chips">${s.watch.map((w) => `<button data-act="unwatch" data-m="${w.mmsi}" class="on" title="Stop watching">⭐ ${esc(w.name || `MMSI ${w.mmsi}`)} ✕</button>`).join("")}</div>` : ""}
         <div class="fnote">${(s.watch || []).length ? "These alert whenever they arrive at or leave a harbour above (harbour and departure circles), whatever their type. Tap one to stop watching it." : "None yet. Tap <b>Watch</b> on a ship's Vessel tab to be alerted whenever it arrives at or leaves a harbour above, whatever its type."}</div>
+      </div>
+      <div class="panel"><h4>Tide alerts</h4>
+        ${sw("tides.enabled", t.enabled, "High / low tide alerts", "a notification before each predicted high or low tide at the stations you pick below")}
+        ${t.enabled ? `
+        <div class="arow"><div class="grow">Notify<div class="sub">before each tide, once per tide</div></div><input type="number" data-set="tides.minutesBefore" value="${esc(t.minutesBefore)}" min="5" max="360" step="5"> min</div>
+        <div class="arow"><div class="grow">Which tides</div><div class="chips">${["high", "low"].map((e) => `<button data-act="tideev" data-e="${e}" class="${t.events.includes(e) ? "on" : ""}"><ha-icon icon="${e === "high" ? "mdi:arrow-up-bold" : "mdi:arrow-down-bold"}"></ha-icon>${e === "high" ? "High tide" : "Low tide"}</button>`).join("")}</div></div>
+        ${routes("tides", t.channels)}
+        <div class="chips" style="margin-top:10px">${tideSt.map((x) => `<button data-act="tidest" data-id="${esc(x.id)}" data-n="${esc(x.name)}" class="${t.stations.some((y) => y.id === x.id) ? "on" : ""}">${esc(x.name)}</button>`).join("") || `<span class="muted" style="font-size:.85em">No tide stations yet</span>`}</div>
+        <div class="fnote">${t.stations.length ? "" : "<b>Pick at least one station.</b> "}Tap a station to turn its alerts on or off. These are the Tides tab's stations: change that list with the pencil on the Tides tab.</div>` : ""}
       </div>
       <div class="panel"><h4>Recent alerts</h4>
         ${(this._alerts || []).map((a) => `<div class="arow"><span class="muted" style="font-size:.78em;min-width:92px">${new Date(a.t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>

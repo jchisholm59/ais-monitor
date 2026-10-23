@@ -20,7 +20,7 @@ actions:
   - variables:
       payload: >-
         {% set j = trigger.json %}{% set icons = {'warship': 'mdi:shield-star', 'cruise': 'mdi:ferry',
-        'coastguard': 'mdi:lifebuoy'} %}{% set d = {'tag': j.tag, 'timeout': 7200, 'sticky': 'true', 'persistent': 'true',
+        'coastguard': 'mdi:lifebuoy', 'tide': 'mdi:waves'} %}{% set d = {'tag': j.tag, 'timeout': 7200, 'sticky': 'true', 'persistent': 'true',
         'channel': 'Ship alerts', 'importance': 'high', 'priority': 'high', 'ttl': 0,
         'clickAction': '/lovelace/ships', 'notification_icon': icons.get(j.kind, 'mdi:bell'),
         'actions': [{'action': 'URI', 'title': 'Open', 'uri': '/lovelace/ships'}, {'action': 'DISMISS_' ~ j.tag, 'title': 'Dismiss'}]} %}
