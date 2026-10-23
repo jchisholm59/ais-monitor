@@ -336,6 +336,7 @@ address out for 15 minutes. With no `ADMIN_PASSWORD`, nothing changes: no sign-i
 | `SMTP_HOST`, `SMTP_PORT` | `smtp.gmail.com`, `465` | Another mail server (TLS on connect) |
 | `ALERT_RADIUS_NM` | `6` | Starting harbour circle for alerts; then set in the card |
 | `ADMIN_PASSWORD` | none | Guests can look but not change anything; sign in on the Alerts tab (see [Sharing it with guests](#sharing-it-with-guests)) |
+| `SDR_URL`, `SDR_CHANNELS` | none | The Listen panel (marine VHF, a [Pi-SDR](https://github.com/jchisholm59/Pi-SDR) receiver) for the dashboard and the add-on, without writing the card's `sdr` option: the receiver's address, and channels as `Name:MHz;...` with `:noscan` to leave one out of Scan, e.g. `Ch 16:156.8;Ch 12:156.6;WX 21B:161.65:noscan`. Blank: Ch 16, 13, 12 and 14. A card `sdr` option (or the add-on's `card_options`) wins. The browser plays the audio straight from the receiver, so it must be able to reach it (e.g. over Tailscale away from home) |
 | `CESIUM_TOKEN` | none | Cesium ion token for the Bridge tab, for everyone using the dashboard (and guests) |
 | `ADMIN_TRUSTED_IPS` | none | Addresses always treated as signed in (the HA add-on sets Home Assistant's ingress proxy) |
 | `PORT` | `7110` | |
