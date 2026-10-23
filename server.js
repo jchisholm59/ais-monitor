@@ -81,7 +81,8 @@ const SDR = (() => {
     .filter((m) => m && Number(m[2]) >= 1 && Number(m[2]) <= 2000)
     .map((m) => ({ name: m[1].slice(0, 20), freq: Number(m[2]), ...(m[3] ? { scan: false } : {}) }));
   if (!url) return null;
-  if (!channels.length) return log('SDR_URL is set but SDR_CHANNELS has no channels ("Name:MHz;..."): no Listen panel'), null;
+  // No channels: the Listen panel says how to add them.
+  if (!channels.length) return log('SDR_URL is set but SDR_CHANNELS has no channels ("Name:MHz;..."): the Listen panel shows how to add them'), { url, channels: [] };
   const f = channels.map((c) => c.freq);
   if (Math.max(...f) - Math.min(...f) > 6) log('SDR_CHANNELS spans more than 6 MHz: the Pi-SDR can only watch channels within about 6 MHz of each other');
   return { url, channels };
