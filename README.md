@@ -142,7 +142,9 @@ the moon and spring or neap tides, in each place's local time. Sources, best fir
 - **US**: NOAA tide prediction stations (free).
 - **Anywhere else**: a tide model at the location: [WorldTides](https://www.worldtides.info) with `WORLDTIDES_KEY` set (paid,
   good near coasts), otherwise [Open-Meteo](https://open-meteo.com/en/docs/marine-weather-api) (free; a coarse global
-  model, so only roughly right in bays and harbours, and nothing for a point on land).
+  model, so only roughly right in bays and harbours). Where the model has nothing at the place itself (a town centre
+  found by name, or up an inlet, e.g. Greenock on the Clyde), it uses the nearest water it covers within 15 km and
+  the Tides tab says so ("model point 7 km W of here").
 
 By default each location gets the nearest CHS or NOAA station within 40 km, else the model. The pencil edits the list:
 search stations by name or code, places by name, or type `lat, lon`. The monitor fetches and caches all of this (CHS's

@@ -142,11 +142,48 @@ module.exports = function createTides({ dataDir, isAdmin, locations, worldtidesK
       if (!curve.length) throw new Error('WorldTides has no tides at this point');
       return { meta: { ...meta, source: 'WorldTides', datum: j.responseDatum ? `${j.responseDatum} (WorldTides)` : 'chart datum (WorldTides)', near: j.station || null }, curve, events: (j.extremes || []).map((x) => [x.dt * 1000, x.height]) };
     }
-    const j = await getJson(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&minutely_15=sea_level_height_msl&past_days=1&forecast_days=8&timezone=GMT`);
+    // No data at the point itself (the model's grid calls it land: a town centre found by name, or up an inlet like
+    // Greenock on the Clyde): the nearest water it covers, within 15 km, shown on the card as e.g. "4 km W".
+    let at = waterAt.get(ll) || { lat, lon };
+    let curve = seaLevel(await openMeteo([at]))[0];
+    if (!curve.length && at.km === undefined) {
+      at = await nearestWater(lat, lon);
+      curve = at ? at.curve : [];
+      if (at) waterAt.set(ll, { lat: at.lat, lon: at.lon, km: at.km, dir: at.dir });
+    }
+    if (!curve.length) throw new Error('No tide model data within 15 km of this point (inland, or far up an inlet): pick a point on open water');
+    return { meta: { ...meta, source: 'Open-Meteo', datum: 'mean sea level (a coarse model: rough in bays and harbours)', ...(at.km !== undefined ? { modelAt: { lat: at.lat, lon: at.lon, km: at.km, dir: at.dir } } : {}) }, curve, events: extremes(curve) };
+  }
+
+  // Open-Meteo Marine for one or more points (several at once take one request and return an array).
+  const waterAt = new Map(); // geo point -> the nearest water with model data, once found
+  async function openMeteo(pts) {
+    const j = await getJson(`https://marine-api.open-meteo.com/v1/marine?latitude=${pts.map((p) => p.lat.toFixed(4)).join(',')}&longitude=${pts.map((p) => p.lon.toFixed(4)).join(',')}&minutely_15=sea_level_height_msl&past_days=1&forecast_days=8&timezone=GMT`);
+    return Array.isArray(j) ? j : [j];
+  }
+  const seaLevel = (js) => js.map((j) => {
     const m = j.minutely_15 || {};
-    const curve = (m.time || []).map((t, i) => [Date.parse(t + 'Z'), m.sea_level_height_msl?.[i]]).filter((x) => fin(x[1]));
-    if (!curve.length) throw new Error('No tide model data at this point (on land, or too far up an inlet): pick a point on open water');
-    return { meta: { ...meta, source: 'Open-Meteo', datum: 'mean sea level (a coarse model: rough in bays and harbours)' }, curve, events: extremes(curve) };
+    return (m.time || []).map((t, i) => [Date.parse(t + 'Z'), m.sea_level_height_msl?.[i]]).filter((x) => fin(x[1]));
+  });
+  // Rings of points 2-15 km out (8 directions, 12 from 7 km), one request per ring: the first point with data that is
+  // itself on water (ground elevation 0; the model's coarse cells also give data to points on the shore around them,
+  // which would point the card the wrong way), else the first with any data.
+  async function nearestWater(lat, lon) {
+    let any = null;
+    const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    for (const d of [2, 4, 7, 10, 15]) {
+      const n = d < 7 ? 8 : 12;
+      const pts = Array.from({ length: n }, (_, i) => {
+        const b = (i * 360) / n, r = (b * Math.PI) / 180;
+        return { lat: lat + (d / 111.32) * Math.cos(r), lon: lon + (d / (111.32 * Math.cos((lat * Math.PI) / 180))) * Math.sin(r), km: d, dir: DIRS[Math.round(b / 45) % 8] };
+      });
+      const js = await openMeteo(pts), curves = seaLevel(js);
+      const i = curves.findIndex((c, k) => c.length && js[k].elevation <= 0);
+      if (i >= 0) return { ...pts[i], curve: curves[i] };
+      const k = curves.findIndex((c) => c.length);
+      if (k >= 0) any ||= { ...pts[k], curve: curves[k] };
+    }
+    return any;
   }
 
   async function chsStation(id) {
