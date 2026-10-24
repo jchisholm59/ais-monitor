@@ -389,7 +389,7 @@ class TidesCard extends HTMLElement {
             <div class="sub">${rate > 0 ? "▲ Rising" : "▼ Falling"}, ${this._u(Math.abs(rate))} an hour</div>
             <div class="kv"><span>Today's range</span><b>${fin(hi) ? this._u(hi - lo) : "–"}</b>
               ${obsNow && now - obsNow[0] < 30 * 60e3 ? `<span>Gauge reads</span><b>${this._u(obsNow[1])} (${obsNow[1] - this._levelAt(d, obsNow[0]) >= 0 ? "+" : ""}${this._u(obsNow[1] - this._levelAt(d, obsNow[0]))})</b>` : ""}
-              </div><div class="sub" style="font-size:.8em">${esc(SOURCES[d.meta?.source] || "Canadian Hydrographic Service")}: heights above ${esc(d.meta?.datum || "chart datum (about the lowest tides)")}</div></div></div></div>
+              </div><div class="sub" style="font-size:.8em">${esc(SOURCES[d.meta?.source] || "Canadian Hydrographic Service")}: heights above ${esc(d.meta?.datum || "chart datum (about the lowest tides)")}${d.meta?.modelAt ? ` · <span title="The model has no data at this place itself (it counts it as land), so this is the nearest water it covers">model point ${esc(d.meta.modelAt.km)} km ${esc(d.meta.modelAt.dir)} of here</span>` : ""}</div></div></div></div>
       <div class="panel"><div class="ph"><ha-icon icon="mdi:clock-outline"></ha-icon>Next</div>
         <div class="next">${first.map((e) => evRow(e, e.high ? "High" : "Low")).join("")}</div>
         <div class="kv">${sun ? `<span>Sunrise</span><b>${hm(sun.rise)}</b><span>Sunset</span><b>${hm(sun.set)}</b>` : ""}</div>
