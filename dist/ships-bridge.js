@@ -457,7 +457,7 @@ export class Bridge {
   // opts: { token, saveToken(token) -> Promise, color(v) -> css colour, onPick(mmsi), onExit(),
   //         label(v) -> {nm, sub}, status(v) -> navigational status text, models (false: built-in ships only),
   //         photo(mmsi) -> Promise<{url, file, date, credit, license, page} | null>,
-  //         sdr: the card's SdrListener and its panel {listener, panel} (sdr-listen.js; shown here while open) }
+  //         sdr: the card's SdrListener and its panel {listener, panel} (sdr-listen.js; a row above the view while open) }
   constructor(container, opts) {
     this.el = container;
     this.opts = opts;
@@ -481,7 +481,7 @@ export class Bridge {
     this.photoOff = saved("photo", "1") === "0";
     this._setMode("bridge");
     this.sdr = opts.sdr?.listener || null;
-    if (opts.sdr?.panel) opts.sdr.panel.mount(this.$.br, "view");
+    if (opts.sdr?.panel) opts.sdr.panel.mount(this.el, "bar", this.$.br); // a row above the view, clear of the HUD
   }
 
   _save(k, v) {
